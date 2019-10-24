@@ -1,6 +1,0 @@
-{
-    "sketch": "LS_GS_firmware_v0.1.ino",
-    "board": "arduino:avr:nano",
-    "configuration": "cpu=atmega328old",
-    "port": "COM12"
-}

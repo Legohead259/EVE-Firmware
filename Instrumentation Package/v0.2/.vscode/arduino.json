@@ -1,5 +1,0 @@
-{
-    "sketch": "LS_Firmware_v02.ino",
-    "board": "adafruit:avr:feather32u4",
-    "port": "COM15"
-}

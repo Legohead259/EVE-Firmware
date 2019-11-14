@@ -1,6 +1,4 @@
 {
-    "sketch": "Ground Station\\Examples\\LoRa_GCS_Test\\LoRa_GCS_Test.ino",
-    "board": "arduino:avr:nano",
-    "port": "COM12",
-    "configuration": "cpu=atmega328"
+    "sketch": "Ground Station\\v0.2\\LS_GS_firmware_v0.2.ino",
+    "board": "arduino:avr:uno"
 }

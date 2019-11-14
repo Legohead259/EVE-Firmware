@@ -1,4 +1,6 @@
 {
-    "sketch": "Instrumentation Package\\v0.1.2\\LS_firmware_v01.2.ino",
-    "board": "adafruit:avr:feather32u4"
+    "sketch": "Ground Station\\Examples\\LoRa_GCS_Test\\LoRa_GCS_Test.ino",
+    "board": "arduino:avr:nano",
+    "port": "COM12",
+    "configuration": "cpu=atmega328"
 }

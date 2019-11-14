@@ -1,7 +1,0 @@
-{
-    "sketch": "LoRa_GCS_Test.ino",
-    "board": "arduino:avr:nano",
-    "port": "COM12",
-    "configuration": "cpu=atmega328old",
-    "programmer": "AVRISP mkII"
-}

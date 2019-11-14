@@ -3,8 +3,8 @@
 
 // Defaults for Arduino Uno
 #define RFM95_CS 10
-#define RFM95_RST 9
-#define RFM95_INT 3
+#define RFM95_RST 3
+#define RFM95_INT 2
 
 #define RF95_FREQ 915.0
 
@@ -46,6 +46,8 @@ void setup() {
 
 void loop() {
     listen();
+    rf95.send((uint8_t)*"HELLOWORLD", 11); //DEBGU
+    rf95.waitPacketSent();
 }
 
 void listen() {

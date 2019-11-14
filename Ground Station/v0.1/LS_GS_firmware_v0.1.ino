@@ -6,7 +6,7 @@
 
 // Defaults for Arduino Uno
 #define RFM95_CS 10
-#define RFM95_RST 9
+#define RFM95_RST 2
 #define RFM95_INT 3
 
 #define RF95_FREQ 915.0

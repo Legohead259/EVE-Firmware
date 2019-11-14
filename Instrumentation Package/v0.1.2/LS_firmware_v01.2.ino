@@ -5,6 +5,9 @@
  * Supervising Professor: Dr. Stephen Wood, Ph.D, PE
  * 
  * Launchsonde Firmware Version 0.1.2 Created 10/21/2019 By Braidan Duffy
+ * NOTE: THERE IS A BUG THAT IS CORRUPTING THE BOOTLOADER OF THE ADAFRUIT FEATHER 32u4!!!!!!
+ * 
+ * ~=~=~=~DO NOT USE!~=~=~=~
  * 
  * Theory of Operation:
  * This firmware is intended to relay instrumentation data from the launchsonde to a ground station using the LoRa RFM95 chipset
@@ -133,40 +136,41 @@ void setup() {
         Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!"); //DEBUG
         while(1);
     }
+    Serial.println("BNO055 Initialized!"); //DEBUG
 
-    //Calibrate IMU
-    Serial.println("CALIBRATING!..."); //DEBUG
-    rf95.send((uint8_t*)"CALIBRATING!...", 16);
-    rf95.waitPacketSent();
-    while(!calibrated) {
-        uint8_t system, gyro, accel, mag = 0;
-        bno.getCalibration(&system, &gyro, &accel, &mag);
-        char calibrationPkt[35];
-        sprintf(calibrationPkt, "Sys:%u, Gyro:%u, Accel:%u, Mag:%u", system, gyro, accel, mag); //Format calibration packet
-        rf95.send((uint8_t*)calibrationPkt, sizeof(&calibrationPkt)+1);
+    // //Calibrate IMU
+    // Serial.println("CALIBRATING!..."); //DEBUG
+    // rf95.send((uint8_t*)"CALIBRATING!...", 16);
+    // rf95.waitPacketSent();
+    // while(!calibrated) {
+    //     uint8_t system, gyro, accel, mag = 0;
+    //     bno.getCalibration(&system, &gyro, &accel, &mag);
+    //     char calibrationPkt[35];
+    //     sprintf(calibrationPkt, "Sys:%u, Gyro:%u, Accel:%u, Mag:%u", system, gyro, accel, mag); //Format calibration packet
+    //     rf95.send((uint8_t*)calibrationPkt, sizeof(&calibrationPkt)+1);
 
-        if (system == 3 && gyro == 3 && accel == 3 && mag == 3) { //Check if all sensors are calibrated
-            calibrated = true;
-            // char timeStamp[20];
-            // recordTimestamp(*timeStamp);
-            // dataFile = SD.open(filename, FILE_WRITE);
-            // dataFile.print(timeStamp); dataFile.println("[NOTIFICATION] BNO055 calibrated!");
-            // dataFile.close();
-            logTimeStamp(filename, "[NOTIFICATION] BNO055 calibrated!");
-            rf95.send((uint8_t*)"CALIBRATED!", 12);
-            rf95.waitPacketSent();
-        }
+    //     if (system == 3 && gyro == 3 && accel == 3 && mag == 3) { //Check if all sensors are calibrated
+    //         calibrated = true;
+    //         // char timeStamp[20];
+    //         // recordTimestamp(*timeStamp);
+    //         // dataFile = SD.open(filename, FILE_WRITE);
+    //         // dataFile.print(timeStamp); dataFile.println("[NOTIFICATION] BNO055 calibrated!");
+    //         // dataFile.close();
+    //         logTimeStamp(filename, "[NOTIFICATION] BNO055 calibrated!");
+    //         rf95.send((uint8_t*)"CALIBRATED!", 12);
+    //         rf95.waitPacketSent();
+    //     }
 
-        //Calibration DEBUG
-        Serial.print("CALIBRATION: Sys=");
-        Serial.print(system, DEC);
-        Serial.print(" Gyro=");
-        Serial.print(gyro, DEC);
-        Serial.print(" Accel=");
-        Serial.print(accel, DEC);
-        Serial.print(" Mag=");
-        Serial.println(mag, DEC);
-    }
+    //     //Calibration DEBUG
+    //     Serial.print("CALIBRATION: Sys=");
+    //     Serial.print(system, DEC);
+    //     Serial.print(" Gyro=");
+    //     Serial.print(gyro, DEC);
+    //     Serial.print(" Accel=");
+    //     Serial.print(accel, DEC);
+    //     Serial.print(" Mag=");
+    //     Serial.println(mag, DEC);
+    // }
 }
 
 void loop() {
@@ -174,6 +178,7 @@ void loop() {
     I2C i2c;
     Barometer baro(i2c);
     baro.calibrateStartingHeight();
+    Serial.println("Height Calibrated!"); //DEBUG
     float altitude = 0;
 
     while (1) {

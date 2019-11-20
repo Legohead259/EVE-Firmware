@@ -5,7 +5,6 @@
 #define RFM95_CS 10
 #define RFM95_RST 3
 #define RFM95_INT 2
-
 #define RF95_FREQ 915.0
 
 RH_RF95 rf95(RFM95_CS, RFM95_INT);

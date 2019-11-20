@@ -1,4 +1,5 @@
 {
-    "sketch": "Ground Station\\v0.2\\LS_GS_firmware_v0.2.ino",
-    "board": "arduino:avr:uno"
+    "board": "adafruit:avr:feather32u4",
+    "port": "COM15",
+    "sketch": "Instrumentation Package\\v0.1.2\\LS_firmware_v01.2.ino"
 }

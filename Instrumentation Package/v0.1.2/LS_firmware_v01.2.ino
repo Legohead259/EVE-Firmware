@@ -29,76 +29,27 @@
 #include "barometer.h"
 #include "i2c.h"
 #include <RH_RF95.h>
-#include "RTClib.h"
-#include <SPI.h>
-#include <SD.h>
-#include <Wire.h>
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BNO055.h>
-#include <utility/imumaths.h>
+#include <Adafruit_GPS.h>
 
 #define RFM95_CS 8
 #define RFM95_RST 4
 #define RFM95_INT 7
 #define RFM95_FREQ 915.0
 
-#define BNO055_SAMPLERATE_DELAY_MS 100
+#define GPSSerial Serial1
+#define GPSECHO false
 
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
-RTC_PCF8523 rtc;
-const int chipSelect = 10;
-File dataFile;
-char filename[30];
-bool calibrated = false;
-
-Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x28);
-
-void recordTimestamp(char* timeStamp);
-void log(char* filename, char msg);
-void logTimeStamp(char* filename, char msg);
+Adafruit_GPS GPS(&GPSSerial);
+uint32_t timer = millis();
 
 //=====ARDUINO SETUP=====
 void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.begin(115200);
-    Serial.println("Starting...");
     while(!Serial); //Wait for serial terminal to open
                     //REMOVE BEFORE FLIGHT
-    Serial.println("Ending...");
-    // delay(5000);s
-
-    //----------------------------
-    //---SD CARD INITIALIZATION---
-    //----------------------------
-
-    //See if the card is present and can be initialized:
-    if (!SD.begin(chipSelect)) {
-        Serial.println("Card failed, or not present"); //DEBUG
-        while (1); //do nothing else!
-    }
-    Serial.println("Card initialized."); //DEBUG
-
-    //Create the SD card file according to RTC data
-    DateTime now = rtc.now();
-    for (int x=0; x<100; x++) {
-        sprintf(filename, "%02d%02d_%02d.txt", now.month(), now.day(), x); //ATM the filename can only be 8 chars long
-        if (!SD.exists(filename)) {
-            break;
-        }
-        // Serial.println(filename); //DEBUG
-    }
-
-    //Check if the file was successfully created
-    dataFile = SD.open(filename, FILE_WRITE);
-    if(!dataFile) {
-        Serial.print("Couldnt create ");
-        Serial.println(filename);
-        while(1);
-    }
-    dataFile.println("TESTING LOGGER"); //DEBUG
-    dataFile.close();
-    Serial.print("Writing to "); Serial.println(filename); //DEBUG
 
     //--------------------------
     //---RFM95 INITIALIZATION---
@@ -128,129 +79,111 @@ void setup() {
     rf95.setTxPower(23, false); //Sets max transmitter power. Range is 5-23 dbm; default is 13 dbm
 
     //------------------------
-    //---IMU INITIALIZATION---
+    //---GPS INITIALIZATION---
     //------------------------
-
-    //Initialize IMU
-    if(!bno.begin()) {
-        Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!"); //DEBUG
-        while(1);
-    }
-    Serial.println("BNO055 Initialized!"); //DEBUG
-
-    // //Calibrate IMU
-    // Serial.println("CALIBRATING!..."); //DEBUG
-    // rf95.send((uint8_t*)"CALIBRATING!...", 16);
-    // rf95.waitPacketSent();
-    // while(!calibrated) {
-    //     uint8_t system, gyro, accel, mag = 0;
-    //     bno.getCalibration(&system, &gyro, &accel, &mag);
-    //     char calibrationPkt[35];
-    //     sprintf(calibrationPkt, "Sys:%u, Gyro:%u, Accel:%u, Mag:%u", system, gyro, accel, mag); //Format calibration packet
-    //     rf95.send((uint8_t*)calibrationPkt, sizeof(&calibrationPkt)+1);
-
-    //     if (system == 3 && gyro == 3 && accel == 3 && mag == 3) { //Check if all sensors are calibrated
-    //         calibrated = true;
-    //         // char timeStamp[20];
-    //         // recordTimestamp(*timeStamp);
-    //         // dataFile = SD.open(filename, FILE_WRITE);
-    //         // dataFile.print(timeStamp); dataFile.println("[NOTIFICATION] BNO055 calibrated!");
-    //         // dataFile.close();
-    //         logTimeStamp(filename, "[NOTIFICATION] BNO055 calibrated!");
-    //         rf95.send((uint8_t*)"CALIBRATED!", 12);
-    //         rf95.waitPacketSent();
-    //     }
-
-    //     //Calibration DEBUG
-    //     Serial.print("CALIBRATION: Sys=");
-    //     Serial.print(system, DEC);
-    //     Serial.print(" Gyro=");
-    //     Serial.print(gyro, DEC);
-    //     Serial.print(" Accel=");
-    //     Serial.print(accel, DEC);
-    //     Serial.print(" Mag=");
-    //     Serial.println(mag, DEC);
-    // }
+    GPS.begin(9600);
+    GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
+    // GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
+    GPS.sendCommand(PMTK_SET_NMEA_UPDATE_5HZ); // 5 Hz update rate
+    GPS.sendCommand(PMTK_API_SET_FIX_CTL_5HZ); // 5 Hz fix rate
+    GPS.sendCommand(PGCMD_ANTENNA);
+    delay(1000);
 }
 
 void loop() {
     //Object instantiation placed down here to prevent bootloader corruption issues on Adafruit RFM95X 32u4 Feather
-    I2C i2c;
-    Barometer baro(i2c);
-    baro.calibrateStartingHeight();
-    Serial.println("Height Calibrated!"); //DEBUG
-    float altitude = 0;
+    // I2C i2c;
+    // Barometer baro(i2c);
+    // baro.calibrateStartingHeight();
+    // Serial.println("Height Calibrated!"); //DEBUG
+    // float altitude = 0;
 
     while (1) {
-        //-------------------------
-        //---Timestamp Recording---
-        //------------------------- 
 
-        char timeStamp[20];
-        // DateTime now = rtc.now();
-        // sprintf(timeStamp, "%02d:%02d:%02d,",  now.hour(), now.minute(), now.second());
-        // Serial.println(timeStamp); //DEBUG
-        recordTimestamp(*timeStamp);
+        //-----------------
+        //---GPS polling---
+        //-----------------
+
+        char GPSPkt[48] = ""; //12 for timestamp, 4 for fix, 22 for Lat/Lon coords, 7 for altitude (>1000'), 3 as overflow buffer
+        char c = GPS.read();
+        // if a sentence is received, we can check the checksum, parse it...
+        if (GPS.newNMEAreceived()) {
+            if (!GPS.parse(GPS.lastNMEA())) //Parse NMEA data sentence
+            return; // we can fail to parse a sentence in which case we should just wait for another
+        }
+        // reset timer in case millis wraps around (overflow)
+        if (timer > millis()) timer = millis();
+
+        if (millis() - timer > 250) { //Poll every 0.250 seconds
+            timer = millis(); // reset the timer
+
+            //---GETTING TIMESTAMP---
+
+            char timestamp[13] = ""; 
+            //---DEBUG---
+            Serial.print("\nTime: ");
+            if (GPS.hour < 10) { Serial.print('0'); }
+            Serial.print(GPS.hour); Serial.print(':');
+            //Minutes
+            if (GPS.minute < 10) { Serial.print('0'); }
+            Serial.print(GPS.minute); Serial.print(':');
+            //Seconds
+            if (GPS.seconds < 10) { Serial.print('0'); }
+            Serial.print(GPS.seconds, DEC); Serial.print('.');
+            //Milliseconds
+            if (GPS.milliseconds < 10) {
+            Serial.print("00");
+            } else if (GPS.milliseconds > 9 && GPS.milliseconds < 100) {
+            Serial.print("0");
+            }
+            Serial.println(GPS.milliseconds);
+            //------------
+
+            sprintf(timestamp, "%u:%u:%u.%u,", GPS.hour, GPS.minute, GPS.seconds, GPS.milliseconds); //Generate GPS timestamp string
+            // Serial.print("Added time: "); Serial.println(timestamp); //DEBUG
+            strcat(GPSPkt, timestamp);
+
+            Serial.print("Fix: "); Serial.print((int)GPS.fix);
+            // Serial.print(" quality: "); Serial.println((int)GPS.fixquality);
+            strcat(GPSPkt, GPS.fix?1:0); //Add GPS fix boolean to GPS packet
+            Serial.print("Added fix: "); Serial.println(GPSPkt); //DEBUG
+
+            if (GPS.fix) {
+                // Serial.println("GPS FIXED!");
+                Serial.print("Location: ");
+                Serial.print(GPS.latitude, 4); Serial.print(GPS.lat);
+                Serial.print(", ");
+                Serial.print(GPS.longitude, 4); Serial.println(GPS.lon);
+                // Serial.print("Speed (knots): "); Serial.println(GPS.speed);
+                // Serial.print("Angle: "); Serial.println(GPS.angle);
+                // Serial.print("Altitude: "); Serial.println(GPS.altitude);
+                // Serial.print("Satellites: "); Serial.println((int)GPS.satellites);
+            }
+            Serial.print("Entire GPS packet: "); Serial.println(GPSPkt); //DEBUG
+        }
 
         //-----------------------
         //---Altimeter polling---
         //-----------------------
 
-        altitude = baro.getAltitude();
+        // altitude = baro.getAltitude();
         // Serial.print("Delta-tude: "); Serial.print(altitude); Serial.println(" m"); //DEBUG
-        char altitudePkt[6+1];
-        dtostrf(altitude, 6, 2, altitudePkt);
-
-        // //-----------------
-        // //---IMU polling---
-        // //-----------------
-
-        // // Possible vector values can be:
-        // // - VECTOR_ACCELEROMETER - m/s^2
-        // // - VECTOR_MAGNETOMETER  - uT
-        // // - VECTOR_GYROSCOPE     - rad/s
-        // // - VECTOR_EULER         - degrees
-        // // - VECTOR_LINEARACCEL   - m/s^2
-        // // - VECTOR_GRAVITY       - m/s^2
-        // imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-        // char imuPkt[20];
-        // sprintf(imuPkt, "%02d,%02d,%02d,", euler.x(), euler.y(), euler.z());
-        // Serial.print("X: "); Serial.print(euler.x());   //DEBUG
-        // Serial.print(" Y: "); Serial.print(euler.y());  //DEBUG
-        // Serial.print(" Z: "); Serial.print(euler.z());  //DEBUG
-        // Serial.println();                               //DEBUG
+        // char altitudePkt[6+1];
+        // dtostrf(altitude, 6, 2, altitudePkt);
 
         //----------------------
         //---Packet formation---
         //----------------------
 
-        char packet[sizeof(altitudePkt)+sizeof(timeStamp)] = "";
-        strcat(packet, timeStamp);      //Add the timestamp into the packet
-        strcat(packet, altitudePkt);    //Add the altitude data
+        // char packet[sizeof(altitudePkt)+sizeof(timeStamp)] = "";
+        // char packet[35] = "";
+        // strcat(packet, timeStamp);      //Add the timestamp into the packet
+        // strcat(packet, altitudePkt);    //Add the altitude data
         // strcat(packet, imuPkt);         //Add the IMU data
+        // strcat(packet, GPS)
         // Serial.print("Sent: "); Serial.println(packet); //DEBUG
-        rf95.send((uint8_t*)packet, 20); //Send data to LoRa module
-        rf95.waitPacketSent(); //Wait for packet to complete
-        log(filename, packet); //Log packet
+        // rf95.send((uint8_t*)packet, 35); //Send data to LoRa module
+        // rf95.waitPacketSent(); //Wait for packet to complete
+        // log(filename, packet); //Log packet
     }
-}
-
-void recordTimestamp(char* timeStamp) {
-    DateTime now = rtc.now();
-    sprintf(timeStamp, "%02d:%02d:%02d,",  now.hour(), now.minute(), now.second());
-    Serial.print("TIMESTAMP: "); Serial.println(timeStamp); //DEBUG
-}
-
-void log(char* filename, char msg) {
-    dataFile = SD.open(filename, FILE_WRITE);
-    dataFile.println(msg);
-    Serial.print("LOG MESSAGE: "); Serial.println(msg);
-    dataFile.close();
-}
-
-void logTimeStamp(char* filename, char msg) {
-    char logMsg[sizeof(msg)+20];
-    recordTimestamp(logMsg);
-    strcat(logMsg, msg);
-    log(filename, logMsg);
 }

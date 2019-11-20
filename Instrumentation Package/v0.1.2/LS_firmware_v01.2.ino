@@ -10,6 +10,7 @@
  * ~=~=~=~DO NOT USE!~=~=~=~
  * 
  * Theory of Operation:
+ * TODO: Update
  * This firmware is intended to relay instrumentation data from the launchsonde to a ground station using the LoRa RFM95 chipset
  * On startup, the firmware initializes the chipsets and prepares the file format for the SD Card logging
  * To create a file for logging, the firmware captures the current date from the onboard RTC and uses that as the name for the .txt file
@@ -23,12 +24,13 @@
  * The data packet is formed by capturing the time from the onboard RTC and the change-in-alitude (delta-tude) from the barometer
  * The data is then put into a comma-delimitted format for data packet transmission and logging on the SD card
  * 
- * Last Revision: 10/24/2019 By Braidan Duffy
+ * Last Revision: 11/20/2019 By Braidan Duffy
  */
 
 #include "barometer.h"
 #include "i2c.h"
 #include <RH_RF95.h>
+#include <RHReliableDatagram.h>
 #include <Adafruit_GPS.h>
 
 #define RFM95_CS 8

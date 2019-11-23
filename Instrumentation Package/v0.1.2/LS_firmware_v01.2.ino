@@ -27,8 +27,7 @@
  * Last Revision: 11/20/2019 By Braidan Duffy
  */
 
-#include "barometer.h"
-#include "i2c.h"
+#include <Adafruit_MPL3115A2.h>
 #include <RH_RF95.h>
 #include <RHReliableDatagram.h>
 #include <Adafruit_GPS.h>
@@ -37,11 +36,25 @@
 #define RFM95_RST 4
 #define RFM95_INT 7
 #define RFM95_FREQ 915.0
+#define MY_ADDRESS 3
+#define SERVER_ADDRESS 2
+
+typedef struct TELEMETRY {
+  char timestamp[13];
+  bool GPSFix;
+  float latitude;
+  char lat;
+  float longitude;
+  char lon;
+  float altitude;
+};
 
 #define GPSSerial Serial1
-#define GPSECHO false
+#define GPSECHO true
 
+TELEMETRY data;
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
+RHDatagram manager(rf95, MY_ADDRESS);
 
 Adafruit_GPS GPS(&GPSSerial);
 uint32_t timer = millis();
@@ -54,7 +67,7 @@ void setup() {
                     //REMOVE BEFORE FLIGHT
 
     //--------------------------
-    //---RFM95 INITIALIZATION---
+    //---RADIO INITIALIZATION---
     //--------------------------
     
     pinMode(RFM95_RST, OUTPUT);
@@ -66,19 +79,14 @@ void setup() {
     digitalWrite(RFM95_RST, HIGH);
     delay(10);
 
-    while (!rf95.init()) { //Make sure radio initializes
-        Serial.println("LoRa radio init failed!"); //DEBUG
-        while (1); //do nothing else!
+    if (manager.init()) {
+        if (!rf95.setFrequency(RFM95_FREQ))
+            Serial.println("Unable to set RF95 frequency"); //DEBUG
+        rf95.setTxPower(5);
+        Serial.println("RF95 radio initialized."); //DEBUG
     }
-    Serial.println("LoRa radio init OK!"); //DEBUG
-
-    if (!rf95.setFrequency(RFM95_FREQ)) {
-        Serial.println("setFrequency failed"); //DEBUG
-        while (1);
-    }
-    Serial.print("Set Freq to: "); Serial.println(RFM95_FREQ); //DEBUG
-
-    rf95.setTxPower(23, false); //Sets max transmitter power. Range is 5-23 dbm; default is 13 dbm
+    else
+        Serial.println("RF95 radio initialization failed."); //DEBUG
 
     //------------------------
     //---GPS INITIALIZATION---
@@ -86,28 +94,30 @@ void setup() {
     GPS.begin(9600);
     GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
     // GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
-    GPS.sendCommand(PMTK_SET_NMEA_UPDATE_5HZ); // 5 Hz update rate
-    GPS.sendCommand(PMTK_API_SET_FIX_CTL_5HZ); // 5 Hz fix rate
+    GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ); // 5 Hz update rate
+    GPS.sendCommand(PMTK_API_SET_FIX_CTL_1HZ); // 5 Hz fix rate
     GPS.sendCommand(PGCMD_ANTENNA);
     delay(1000);
 }
 
 void loop() {
     //Object instantiation placed down here to prevent bootloader corruption issues on Adafruit RFM95X 32u4 Feather
-    // I2C i2c;
-    // Barometer baro(i2c);
+    // I2C i2c; //NOTE: Check for char something[x]; in this code, that may be that cause of corruption...
+    // Barometer baro(i2c); //NOTE: Check for char something[x]; in this code, that may be that cause of corruption...
     // baro.calibrateStartingHeight();
     // Serial.println("Height Calibrated!"); //DEBUG
-    // float altitude = 0;
 
     while (1) {
 
         //-----------------
         //---GPS polling---
         //-----------------
-
-        char GPSPkt[48] = ""; //12 for timestamp, 4 for fix, 22 for Lat/Lon coords, 7 for altitude (>1000'), 3 as overflow buffer
+        // GPS.wakeup();
+        // delay(100);
         char c = GPS.read();
+
+        if (GPSECHO) 
+            if (c) Serial.print(c); //DEBUG
         // if a sentence is received, we can check the checksum, parse it...
         if (GPS.newNMEAreceived()) {
             if (!GPS.parse(GPS.lastNMEA())) //Parse NMEA data sentence
@@ -116,12 +126,10 @@ void loop() {
         // reset timer in case millis wraps around (overflow)
         if (timer > millis()) timer = millis();
 
-        if (millis() - timer > 250) { //Poll every 0.250 seconds
+        if (millis() - timer > 1150) { //Poll every 0.250 seconds
             timer = millis(); // reset the timer
 
             //---GETTING TIMESTAMP---
-
-            char timestamp[13] = ""; 
             //---DEBUG---
             Serial.print("\nTime: ");
             if (GPS.hour < 10) { Serial.print('0'); }
@@ -133,7 +141,7 @@ void loop() {
             if (GPS.seconds < 10) { Serial.print('0'); }
             Serial.print(GPS.seconds, DEC); Serial.print('.');
             //Milliseconds
-            if (GPS.milliseconds < 10) {
+            if (GPS.milliseconds < 10) { 
             Serial.print("00");
             } else if (GPS.milliseconds > 9 && GPS.milliseconds < 100) {
             Serial.print("0");
@@ -141,51 +149,43 @@ void loop() {
             Serial.println(GPS.milliseconds);
             //------------
 
-            sprintf(timestamp, "%u:%u:%u.%u,", GPS.hour, GPS.minute, GPS.seconds, GPS.milliseconds); //Generate GPS timestamp string
-            // Serial.print("Added time: "); Serial.println(timestamp); //DEBUG
-            strcat(GPSPkt, timestamp);
+            sprintf(data.timestamp, "%u:%u:%u.%u,", GPS.hour, GPS.minute, GPS.seconds, GPS.milliseconds); //Generate GPS timestamp string
+            Serial.println(GPS.seconds); //DEBUG
+            Serial.print("Added time: "); Serial.println(data.timestamp); //DEBUG
 
-            Serial.print("Fix: "); Serial.print((int)GPS.fix);
+            //---GETTING GPS DATA
+            data.GPSFix = GPS.fix;
+            Serial.print("Fix: "); Serial.print(data.GPSFix); //DEBUG
             // Serial.print(" quality: "); Serial.println((int)GPS.fixquality);
-            strcat(GPSPkt, GPS.fix?1:0); //Add GPS fix boolean to GPS packet
-            Serial.print("Added fix: "); Serial.println(GPSPkt); //DEBUG
+            // strcat(GPSPkt, GPS.fix?1:0); //Add GPS fix boolean to GPS packet
+            // Serial.print("Added fix: "); Serial.println(GPSPkt); //DEBUG
 
             if (GPS.fix) {
-                // Serial.println("GPS FIXED!");
-                Serial.print("Location: ");
-                Serial.print(GPS.latitude, 4); Serial.print(GPS.lat);
-                Serial.print(", ");
-                Serial.print(GPS.longitude, 4); Serial.println(GPS.lon);
-                // Serial.print("Speed (knots): "); Serial.println(GPS.speed);
-                // Serial.print("Angle: "); Serial.println(GPS.angle);
-                // Serial.print("Altitude: "); Serial.println(GPS.altitude);
-                // Serial.print("Satellites: "); Serial.println((int)GPS.satellites);
+                Serial.print("Location: "); //DEBUG
+                data.latitude = GPS.latitude; data.lat = GPS.lat;
+                Serial.print(data.latitude, 4); Serial.print(data.lat); Serial.print(", "); //DEBUG
+                data.longitude = GPS.longitude; data.lon = GPS.lon;
+                Serial.print(data.longitude, 4); Serial.println(data.lon); //DEBUG
             }
-            Serial.print("Entire GPS packet: "); Serial.println(GPSPkt); //DEBUG
+            // Serial.print("Entire GPS packet: "); Serial.println(GPSPkt); //DEBUG
         }
 
         //-----------------------
         //---Altimeter polling---
         //-----------------------
 
-        // altitude = baro.getAltitude();
-        // Serial.print("Delta-tude: "); Serial.print(altitude); Serial.println(" m"); //DEBUG
-        // char altitudePkt[6+1];
-        // dtostrf(altitude, 6, 2, altitudePkt);
+        // data.altitude = baro.getAltitude();
+        // Serial.print("Altitude: "); Serial.print(data.altitude); Serial.println(" m"); //DEBUG
 
-        //----------------------
-        //---Packet formation---
-        //----------------------
+        //-------------------------
+        //---Packet transmission---
+        //-------------------------
 
-        // char packet[sizeof(altitudePkt)+sizeof(timeStamp)] = "";
-        // char packet[35] = "";
-        // strcat(packet, timeStamp);      //Add the timestamp into the packet
-        // strcat(packet, altitudePkt);    //Add the altitude data
-        // strcat(packet, imuPkt);         //Add the IMU data
-        // strcat(packet, GPS)
-        // Serial.print("Sent: "); Serial.println(packet); //DEBUG
-        // rf95.send((uint8_t*)packet, 35); //Send data to LoRa module
-        // rf95.waitPacketSent(); //Wait for packet to complete
-        // log(filename, packet); //Log packet
+        //CAUSING GPS DATA TO NOT PARSE! --INTERRUPT IS CAUSING NMEA READING TO BE INTERRUPTED!
+        // if (GPS.standby()) {
+            if (!manager.sendto((uint8_t *) &data, sizeof(data), SERVER_ADDRESS))
+                Serial.print("Transmit failed");
+            rf95.waitPacketSent(100); // wait 100 mSec max for packet to be sent
+        // }
     }
 }

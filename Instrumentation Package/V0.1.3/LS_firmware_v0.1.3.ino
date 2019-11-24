@@ -4,13 +4,11 @@
  * UNDERWATER TECHNOLOGY LABORATORY
  * Supervising Professor: Dr. Stephen Wood, Ph.D, PE
  * 
- * Launchsonde Firmware Version 0.1.2 Created 10/21/2019 By Braidan Duffy
+ * Launchsonde Firmware Version 0.1.3 Created 11/23/2019 By Braidan Duffy
  * NOTE: THERE IS A BUG THAT IS CORRUPTING THE BOOTLOADER OF THE ADAFRUIT FEATHER 32u4!!!!!!
  * 
- * ~=~=~=~DO NOT USE!~=~=~=~
  * 
  * Theory of Operation:
- * TODO: Update
  * This firmware is intended to relay instrumentation data from the launchsonde to a ground station using the LoRa RFM95 chipset
  * On startup, the firmware initializes the chipsets and prepares the file format for the SD Card logging
  * To create a file for logging, the firmware captures the current date from the onboard RTC and uses that as the name for the .txt file
@@ -18,11 +16,21 @@
  * The firmware then opens the file and if it cannot, it blocks the code from continuing further
  * NOTE: This block is non-resettable besides a full hardware reset
  * 
+ * 
  * In loop(), the firmware begins by instantiating the barometer/altimeter
  * NOTE: due to a bug in the current barometer library (as of 10/21/2019), the barometer MUST be instantiated in the loop or the bootloader corrupts
- * The firmware then calibrates the barometer's starting atitude using the library's function and begins formatting the data packet
- * The data packet is formed by capturing the time from the onboard RTC and the change-in-alitude (delta-tude) from the barometer
- * The data is then put into a comma-delimitted format for data packet transmission and logging on the SD card
+ * The firmware then calibrates the starting height of the barometer using its built-in function
+ * Then, the timestamp is captured using the onboard RTC and millis() function of the microcontroller and added to the TELEMETRY data packet
+ * The altitude is polled from the barometer and added to the TELEMETRY packet
+ * The firmware polls the IMU and checks the calibration data from its three sensors
+ * Each sensor has a calibration value from 0-3 where 0 is uncalibrated and 3 is fully calibrated
+ * The firmware does not poll IMU sensor data unless the three sensors are calibrated and thus, the IMU data in the TELEMETRY packet will be 0
+ * Once calibrated, the firmware polls the IMU data and adds it to the TELEMETRY packet
+ * Then, the entire packet is logged to the local SD card in a comma-delimitted format by calling logTelemPacket()
+ * Afterwards, the firmware sends the TELEMETRY packet to the radio datagram manager to be broadcasted to the ground station listening for data
+ * This process then repeats until the unit is powered off
+ * NOTE: A bug in the previous launch firmware (v0.1) stopped program execution if the SD card is ejected
+ *       In this version, the instrumentation package will still transmit even without an SD card
  * 
  * Last Revision: 11/20/2019 By Braidan Duffy
  */
@@ -204,20 +212,17 @@ void loop() {
         // Serial.print(" Accel="); Serial.print(data.accel_cal, DEC); //DEBUG
         // Serial.print(" Mag="); Serial.println(data.mag_cal, DEC); //DEBUG
 
-        if (data.gyro_cal == 3 && data.accel_cal == 3 && data.mag_cal == 3) { //Don't read or transmit data until all sensors are calibrated
-            // Possible vector values can be:
+        if (data.gyro_cal == 3 && data.accel_cal == 3 && data.mag_cal == 3) {
             // - VECTOR_ACCELEROMETER - m/s^2
-            // - VECTOR_MAGNETOMETER  - uT
             // - VECTOR_GYROSCOPE     - rad/s
             // - VECTOR_EULER         - degrees
             // - VECTOR_LINEARACCEL   - m/s^2
-            // - VECTOR_GRAVITY       - m/s^2
             imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
             imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
             imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
             imu::Vector<3> linaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
 
-            //Add accelerometer data to data packet
+            //Add accelerometer data to data packet            
             data.accelX = accel.x();
             data.accelY = accel.y();
             data.accelZ = accel.z();
@@ -225,7 +230,7 @@ void loop() {
             // Serial.print("aX: "); Serial.print(data.accelX);
             // Serial.print(" aY: "); Serial.print(data.accelY);
             // Serial.print(" aZ: "); Serial.print(data.accelZ);
-            Serial.print("\t\t");
+            // Serial.print("\t\t");
 
             //Add gyroscope data to data packet
             data.gyroX = gyro.x();
@@ -235,7 +240,7 @@ void loop() {
             // Serial.print("gX: "); Serial.print(data.gyroX);
             // Serial.print(" gY: "); Serial.print(data.gyroY);
             // Serial.print(" gZ: "); Serial.print(data.gyroZ);
-            Serial.print("\t\t");
+            // Serial.print("\t\t");
             
             //Add euler rotation data to data packet
             data.roll = euler.z();
@@ -245,9 +250,9 @@ void loop() {
             // Serial.print("eX: "); Serial.print(data.roll);
             // Serial.print(" eY: "); Serial.print(data.pitch);
             // Serial.print(" eZ: "); Serial.print(data.yaw);
-            Serial.print("\t\t");
+            // Serial.print("\t\t");
 
-            //Add euler rotation data to data packet
+            //Add linear accleration data to data packet
             data.linAccelX = linaccel.x();
             data.linAccelY = linaccel.y();
             data.linAccelZ = linaccel.z();
@@ -256,10 +261,8 @@ void loop() {
             // Serial.print(" lY: "); Serial.print(data.linAccelX);
             // Serial.print(" lZ: "); Serial.print(data.linAccelX);
             // Serial.print("\t\t");
-            Serial.println("");
+            // Serial.println("");
         }
-
-        
 
         //-------------------------
         //---Packet transmission---

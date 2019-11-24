@@ -189,6 +189,7 @@ void loop() {
         else {
             lastSecond = curSecond;
             lastMillis = millis();
+            curMSecond = 0;
         }
 
         sprintf(data.timestamp, "%02d:%02d:%02d.%d",  now.hour(), now.minute(), now.second(), (int) curMSecond);

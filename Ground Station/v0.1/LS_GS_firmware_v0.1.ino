@@ -1,3 +1,20 @@
+/**
+ * PROJECT PHOTON
+ * FLORIDA INSTITUTE OF TECHNOLOGY, OEMS DEPARTMENT
+ * UNDERWATER TECHNOLOGY LABORATORY
+ * Supervising Professor: Dr. Stephen Wood, Ph.D, PE
+ * 
+ * Launchsonde Ground Station Firmware Version 0.1 Created 11/23/2019 By Braidan Duffy
+ * 
+ * Theory of Operation:
+ * This firmware is meant to power the ground station listening for telemetry transmitted by the Launchsonde
+ * It initially begins by setting up the LoRa RFM95 chipset with a datagram manager (used to make packet formation encoding/decoding easier)
+ * Then the firmware listens for telemetry packets from the launchsonde and immediately spits them out into the serial port
+ * This data is in a comma-delimmited format and thus, needs to be logged by the computer as such.
+ * NOTE: This firmware does not support logging. Any logging must be done by the computer listening on the serial port!
+ * 
+ * Last Revision: 11/20/2019 By Braidan Duffy
+ */
 #include <SPI.h>
 #include <RH_RF95.h>
 #include <RHReliableDatagram.h>

@@ -62,51 +62,68 @@ void setup(void)
     should go here)
 */
 /**************************************************************************/
-void loop(void)
-{
-  // Possible vector values can be:
-  // - VECTOR_ACCELEROMETER - m/s^2
-  // - VECTOR_MAGNETOMETER  - uT
-  // - VECTOR_GYROSCOPE     - rad/s
-  // - VECTOR_EULER         - degrees
-  // - VECTOR_LINEARACCEL   - m/s^2
-  // - VECTOR_GRAVITY       - m/s^2
-  imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+void loop(void) {
+    // Possible vector values can be:
+    // - VECTOR_ACCELEROMETER - m/s^2
+    // - VECTOR_MAGNETOMETER  - uT
+    // - VECTOR_GYROSCOPE     - rad/s
+    // - VECTOR_EULER         - degrees
+    // - VECTOR_LINEARACCEL   - m/s^2
+    // - VECTOR_GRAVITY       - m/s^2
+    imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
+    imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+    imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+    imu::Vector<3> linaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
 
-  /* Display the floating point data */
-  Serial.print("X: ");
-  Serial.print(euler.x());
-  Serial.print(" Y: ");
-  Serial.print(euler.y());
-  Serial.print(" Z: ");
-  Serial.print(euler.z());
-  Serial.print("\t\t");
+    /* Display the floating point data */
+    Serial.print("aX: "); Serial.print(accel.x());
+    Serial.print(" aY: "); Serial.print(accel.y());
+    Serial.print(" aZ: "); Serial.print(accel.z());
+    Serial.print("\t\t");
 
-  /*
-  // Quaternion data
-  imu::Quaternion quat = bno.getQuat();
-  Serial.print("qW: ");
-  Serial.print(quat.w(), 4);
-  Serial.print(" qX: ");
-  Serial.print(quat.x(), 4);
-  Serial.print(" qY: ");
-  Serial.print(quat.y(), 4);
-  Serial.print(" qZ: ");
-  Serial.print(quat.z(), 4);
-  Serial.print("\t\t");
-  */
+    /* Display the floating point data */
+    Serial.print("gX: "); Serial.print(gyro.x());
+    Serial.print(" gY: "); Serial.print(gyro.y());
+    Serial.print(" gZ: "); Serial.print(gyro.z());
+    Serial.print("\t\t");
+    
+    /* Display the floating point data */
+    Serial.print("eX: "); Serial.print(euler.x());
+    Serial.print(" eY: "); Serial.print(euler.y());
+    Serial.print(" eZ: "); Serial.print(euler.z());
+    Serial.print("\t\t");
 
-  /* Display calibration status for each sensor. */
-  uint8_t system, gyro, accel, mag = 0;
-  bno.getCalibration(&system, &gyro, &accel, &mag);
-  Serial.print("CALIBRATION: Sys=");
-  Serial.print(system, DEC);
-  Serial.print(" Gyro=");
-  Serial.print(gyro, DEC);
-  Serial.print(" Accel=");
-  Serial.print(accel, DEC);
-  Serial.print(" Mag=");
-  Serial.println(mag, DEC);
+    /* Display the floating point data */
+    Serial.print("lX: "); Serial.print(linaccel.x());
+    Serial.print(" lY: "); Serial.print(linaccel.y());
+    Serial.print(" lZ: "); Serial.print(linaccel.z());
+    Serial.print("\t\t");
 
-  delay(BNO055_SAMPLERATE_DELAY_MS);
+    /*
+    // Quaternion data
+    imu::Quaternion quat = bno.getQuat();
+    Serial.print("qW: ");
+    Serial.print(quat.w(), 4);
+    Serial.print(" qX: ");
+    Serial.print(quat.x(), 4);
+    Serial.print(" qY: ");
+    Serial.print(quat.y(), 4);
+    Serial.print(" qZ: ");
+    Serial.print(quat.z(), 4);
+    Serial.print("\t\t");
+    */
+
+    /* Display calibration status for each sensor. */
+    uint8_t system, gyro_cal, accel_cal, mag_cal = 0;
+    bno.getCalibration(&system, &gyro_cal, &accel_cal, &mag_cal);
+    Serial.print("CALIBRATION: Sys=");
+    Serial.print(system, DEC);
+    Serial.print(" Gyro=");
+    Serial.print(gyro_cal, DEC);
+    Serial.print(" Accel=");
+    Serial.print(accel_cal, DEC);
+    Serial.print(" Mag=");
+    Serial.println(mag_cal, DEC);
+
+    delay(BNO055_SAMPLERATE_DELAY_MS);
 }

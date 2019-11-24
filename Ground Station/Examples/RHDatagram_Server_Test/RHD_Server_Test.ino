@@ -3,13 +3,24 @@
 #include <RHReliableDatagram.h>
 
 typedef struct TELEMETRY {
-  char timestamp[13];
-  bool GPSFix;
-  float latitude;
-  char lat;
-  float longitude;
-  char lon;
+  char timestamp[20];
   float altitude;
+  uint8_t system_cal = 0;
+  uint8_t gyro_cal = 0;
+  uint8_t accel_cal = 0;
+  uint8_t mag_cal = 0;
+  float accelX;
+  float accelY;
+  float accelZ;
+  float gyroX;
+  float gyroY;
+  float gyroZ;
+  float roll;
+  float pitch;
+  float yaw;
+  float linAccelX;
+  float linAccelY;
+  float linAccelZ;
 };
 
 // Defaults for Arduino Uno
@@ -55,10 +66,23 @@ void listen() {
         if (manager.recvfrom((uint8_t *) &data, &bufLen)) {    
             if (bufLen == sizeof(data)) {
                 Serial.println("<======= Received timestamp = " + String(data.timestamp));
-                Serial.println("<======= Received fix = " + String(data.GPSFix));
-                Serial.println("<======= Received latitude = " + String(data.latitude, 4) + data.lat);
-                Serial.println("<======= Received longitude = " + String(data.longitude, 4) + data.lon);
-                Serial.println("<======= Received altitude = " + String(data.altitude, 2));
+                Serial.println("<======= Received altitude = " + String(data.altitude));
+                Serial.println("<======= Received sys calibration = " + String(data.system_cal));
+                Serial.println("<======= Received gyro calibration = " + String(data.gyro_cal));
+                Serial.println("<======= Received accel calibration = " + String(data.accel_cal));
+                Serial.println("<======= Received mag calibration = " + String(data.mag_cal));
+                Serial.println("<======= Received x accel = " + String(data.accelX));
+                Serial.println("<======= Received y accel = " + String(data.accelY));
+                Serial.println("<======= Received z accel = " + String(data.accelZ));
+                Serial.println("<======= Received gyro x = " + String(data.gyroX));
+                Serial.println("<======= Received gyro y = " + String(data.gyroY));
+                Serial.println("<======= Received gyro z = " + String(data.gyroZ));
+                Serial.println("<======= Received roll = " + String(data.roll));
+                Serial.println("<======= Received pitch = " + String(data.pitch));
+                Serial.println("<======= Received yaw = " + String(data.yaw));
+                Serial.println("<======= Received x lin accel = " + String(data.linAccelX));
+                Serial.println("<======= Received y lin accel = " + String(data.linAccelY));
+                Serial.println("<======= Received z lin accel = " + String(data.linAccelZ));
             }
             else {
                 Serial.println("Incorrect response size");

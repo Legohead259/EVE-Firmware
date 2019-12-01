@@ -1,6 +1,5 @@
 {
-    "board": "arduino:avr:nano",
-    "port": "COM7",
-    "configuration": "cpu=atmega328",
-    "sketch": "Ground Station\\v0.1\\LS_GS_firmware_v0.1.ino"
+    "board": "adafruit:avr:feather32u4",
+    "port": "COM5",
+    "sketch": "Instrumentation Package\\V0.1.3\\LS_firmware_v0.1.3.ino"
 }

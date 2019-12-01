@@ -181,11 +181,11 @@ void loop() {
         //---Packet transmission---
         //-------------------------
 
-        //CAUSING GPS DATA TO NOT PARSE! --INTERRUPT IS CAUSING NMEA READING TO BE INTERRUPTED!
+        //CAUSING GPS DATA TO NOT PARSE! --DELAY IS CAUSING NMEA READING TO BE INTERRUPTED!
         // if (GPS.standby()) {
-            if (!manager.sendto((uint8_t *) &data, sizeof(data), SERVER_ADDRESS))
-                Serial.print("Transmit failed");
-            rf95.waitPacketSent(100); // wait 100 mSec max for packet to be sent
+        if (!manager.sendto((uint8_t *) &data, sizeof(data), SERVER_ADDRESS))
+            Serial.print("Transmit failed");
+        // rf95.waitPacketSent(100); // wait 100 mSec max for packet to be sent
         // }
     }
 }

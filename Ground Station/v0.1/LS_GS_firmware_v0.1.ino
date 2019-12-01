@@ -13,7 +13,7 @@
  * This data is in a comma-delimmited format and thus, needs to be logged by the computer as such.
  * NOTE: This firmware does not support logging. Any logging must be done by the computer listening on the serial port!
  * 
- * Last Revision: 11/20/2019 By Braidan Duffy
+ * Last Revision: 11/23/2019 By Braidan Duffy
  */
 #include <SPI.h>
 #include <RH_RF95.h>

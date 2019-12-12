@@ -3,13 +3,17 @@
         {
             "name": "Win32",
             "includePath": [
+                "C:\\Users\\legoh\\AppData\\Local\\Arduino15\\packages\\adafruit\\hardware\\samd\\1.5.6\\**",
                 "C:\\Users\\legoh\\OneDrive\\Documents\\Arduino\\libraries\\Adafruit_GPS_Library",
                 "D:\\Applications\\Arduino\\tools\\**",
                 "D:\\Applications\\Arduino\\hardware\\arduino\\avr\\**",
                 "C:\\Users\\legoh\\AppData\\Local\\Arduino15\\packages\\adafruit\\hardware\\avr\\1.4.13\\**",
-                "${workspaceFolder}/Arduino/libraries/**"
+                "${workspaceFolder}/Arduino/libraries/**",
+                "C:\\Users\\legoh\\AppData\\Local\\Arduino15\\packages\\adafruit\\hardware\\samd\\1.5.7\\**"
             ],
-            "forcedInclude": [],
+            "forcedInclude": [
+                "C:\\Users\\legoh\\AppData\\Local\\Arduino15\\packages\\adafruit\\hardware\\samd\\1.5.7\\cores\\arduino\\Arduino.h"
+            ],
             "intelliSenseMode": "msvc-x64",
             "compilerPath": "D:/Applications/VisualStudio/VC/Tools/MSVC/14.10.25017/bin/Hostx64/x64/cl.exe",
             "cStandard": "c11",

@@ -45,7 +45,7 @@ Barometer::Barometer(I2C& i2c)
  * Sets the oversampling ratio. Configurable according to Table 58 and 59 of MPL3115A2 datasheet
  * @param ratio - Defualts to 0x10100000 or x16
 */
-void Barometer::setOverSamplingRatio(int ratio=0b10100000)
+void Barometer::setOverSamplingRatio(int ratio/*0b10100000*/)
 {
     i2c.writeRegByte(addr, 0x26, ratio);
 }

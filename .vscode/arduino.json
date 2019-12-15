@@ -1,7 +1,7 @@
 {
     "board": "adafruit:samd:adafruit_itsybitsy_m0",
-    "port": "COM22",
-    "configuration": "usbstack=tinyusb,debug=off",
+    "port": "COM7",
+    "configuration": "usbstack=arduino,debug=off",
     "programmer": "AVRISP mkII",
-    "sketch": "Instrumentation Package\\Examples\\I2C_Scanner\\I2C_Scanner.ino"
+    "sketch": "Instrumentation Package\\v0.2\\LS_firmware_v0.2.ino"
 }

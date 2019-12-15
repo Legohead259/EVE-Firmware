@@ -18,7 +18,6 @@ volatile bool ppsTriggered = false;
 
 void ppsHandler(void);
 
-
 void ppsHandler(void)
 {
 	ppsTriggered = true;
@@ -122,7 +121,9 @@ void loop(void)
 		Serial.print(':');
 		Serial.print(int(nmea.getMinute()));
 		Serial.print(':');
-		Serial.println(int(nmea.getSecond()));
+		Serial.print(int(nmea.getSecond()));
+		Serial.print(':');
+		Serial.println(int(nmea.getHundredths()));
 
 		long latitude_mdeg = nmea.getLatitude();
 		long longitude_mdeg = nmea.getLongitude();
@@ -143,11 +144,6 @@ void loop(void)
 		Serial.println(nmea.getSpeed() / 1000., 3);
 		Serial.print("Course: ");
 		Serial.println(nmea.getCourse() / 1000., 3);
-
-#ifdef MEMORY_FREE_H
-		Serial.print("freeMemory()=");
-		Serial.println(freeMemory());
-#endif
 		Serial.println("-----------------------");
 		nmea.clear();
 	}

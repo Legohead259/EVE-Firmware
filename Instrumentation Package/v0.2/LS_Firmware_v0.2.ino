@@ -44,63 +44,37 @@
 #include "i2c.h"
 #include <SPI.h>
 #include <SD.h>
-#include <Adafruit_GPS.h>
+#include <MicroNMEA.h>
+#include <telemetry.h>
 
-#define RFM95_CS 8
-#define RFM95_RST 4
+#define RFM95_CS A5
+#define RFM95_RST A4
 #define RFM95_INT 7
 #define RFM95_FREQ 915.0
 #define MY_ADDRESS 3
 #define SERVER_ADDRESS 2
 
+#define INTERRUPT_PIN 11 //PPS interrupt on board
+
 #define BNO055_SAMPLERATE_DELAY_MS (100)
-
-#define GPSSerial Serial1
-#define GPSECHO true
-
-typedef struct TELEMETRY {
-    char timestamp[20];
-    bool GPSFix;
-    float latitude;
-    char lat;
-    float longitude;
-    char lon;
-    float altitude;
-    uint8_t system_cal = 0;
-    uint8_t gyro_cal = 0;
-    uint8_t accel_cal = 0;
-    uint8_t mag_cal = 0;
-    float accelX;
-    float accelY;
-    float accelZ;
-    float gyroX;
-    float gyroY;
-    float gyroZ;
-    float roll;
-    float pitch;
-    float yaw;
-    float linAccelX;
-    float linAccelY;
-    float linAccelZ;
-};
 
 TELEMETRY data;
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 RHDatagram manager(rf95, MY_ADDRESS);
 
-const int chipSelect = 10;
-File dataFile;
-char filename[30];
+HardwareSerial& gps = Serial1;
+char nmeaBuffer[100];
+MicroNMEA nmea(nmeaBuffer, sizeof(nmeaBuffer));
+bool ledState = LOW;
+volatile bool ppsTriggered = false;
+const bool GPS_ECHO = false;
 
 Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x28);
-
-Adafruit_GPS GPS(&GPSSerial);
-uint32_t timer = millis();
 
 void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.begin(115200);
-    // while(!Serial); //Wait for serial terminal to open
+    while(!Serial); //Wait for serial terminal to open
                     //REMOVE BEFORE FLIGHT
 
     //--------------------------
@@ -128,55 +102,33 @@ void setup() {
     //------------------------
     //---GPS INITIALIZATION---
     //------------------------
-    
-    GPS.begin(9600);
-    GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
-    // GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
-    GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ); // 5 Hz update rate
-    GPS.sendCommand(PMTK_API_SET_FIX_CTL_1HZ); // 5 Hz fix rate
-    GPS.sendCommand(PGCMD_ANTENNA);
-    delay(1000);
 
-    char c = GPS.read();
+    gps.begin(9600);
 
-    if (GPSECHO)
-        if (c) Serial.print(c); //DEBUG
-    // if a sentence is received, we can check the checksum, parse it...
-    if (GPS.newNMEAreceived()) {
-        if (!GPS.parse(GPS.lastNMEA())) //Parse NMEA data sentence
-        return; // we can fail to parse a sentence in which case we should just wait for another
-    }
+	pinMode(LED_BUILTIN, OUTPUT);
+	digitalWrite(LED_BUILTIN, ledState);
 
-    //----------------------------
-    //---SD CARD INITIALIZATION---
-    //----------------------------
+	nmea.setUnknownSentenceHandler(printUnknownSentence);
 
-    Serial.print("Initializing SD card...");
+	pinMode(A0, OUTPUT);
+	digitalWrite(A0, HIGH);
+	Serial.println("Resetting GPS module ...");
+	gpsHardwareReset();
+	Serial.println("... done");
 
-    //See if the card is present and can be initialized:
-    if (!SD.begin(chipSelect)) {
-        Serial.println("Card failed, or not present");
-        while (1); //Block code
-    }
-    Serial.println("card initialized.");
+	// Clear the list of messages which are sent.
+	MicroNMEA::sendSentence(gps, "$PORZB");
 
-    //Create the file name
-    for (int x=0; x<100; x++) {
-        sprintf(filename, "%u%u_%i.txt", GPS.month, GPS.day, x); //ATM the filename can only be 8 chars long
-        if (!SD.exists(filename)) {
-            break;
-        }
-        // Serial.println(filename); //DEBUG
-    }
+	// Send only RMC and GGA messages.
+	MicroNMEA::sendSentence(gps, "$PORZB,RMC,1,GGA,1");
 
-    //Create the file
-    dataFile = SD.open(filename, FILE_WRITE);
-    if(!dataFile) {
-        Serial.print("Couldnt create "); Serial.println(filename); //DEBUG
-        while(1); //Block code
-    }
-    Serial.print("Writing to "); Serial.println(filename); //DEBUG
-    dataFile.close();
+	// Disable compatability mode (NV08C-CSM proprietary message) and
+	// adjust precision of time and position fields
+	MicroNMEA::sendSentence(gps, "$PNVGNME,2,9,1");
+	// MicroNMEA::sendSentence(gps, "$PONME,2,4,1,0");
+
+	pinMode(INTERRUPT_PIN, INPUT);
+	attachInterrupt(INTERRUPT_PIN, ppsHandler, RISING);
 
     //------------------------
     //---IMU INITIALIZATION---
@@ -189,192 +141,193 @@ void setup() {
     }
     delay(1000);
     bno.setExtCrystalUse(true);
-}
 
-void loop() {
-    //Object instantiation placed down here to prevent bootloader corruption issues on Adafruit RFM95X 32u4 Feather
+    //------------------------
+    //---IMU INITIALIZATION---
+    //------------------------
+
     I2C i2c; //NOTE: Check for char something[x]; in this code, that may be that cause of corruption...
     Barometer baro(i2c); //NOTE: Check for char something[x]; in this code, that may be that cause of corruption...
     baro.calibrateStartingHeight();
     // Serial.println("Height Calibrated!"); //DEBUG
-
-    uint8_t lastSecond = 0;
-    float lastMillis = millis();
-    float curMillis = 0;
-    float curMSecond = 0;
-
-    while (1) {
-
-        //-----------------
-        //---GPS polling---
-        //-----------------
-        // GPS.wakeup();
-        // delay(100);
-        char c = GPS.read();
-
-        if (GPSECHO) 
-            if (c) Serial.print(c); //DEBUG
-        // if a sentence is received, we can check the checksum, parse it...
-        if (GPS.newNMEAreceived()) {
-            if (!GPS.parse(GPS.lastNMEA())) //Parse NMEA data sentence
-            return; // we can fail to parse a sentence in which case we should just wait for another
-        }
-        // reset timer in case millis wraps around (overflow)
-        if (timer > millis()) timer = millis();
-
-        if (millis() - timer > 1150) { //Poll every 0.250 seconds
-            timer = millis(); // reset the timer
-
-            //---GETTING TIMESTAMP---
-            //---DEBUG---
-            Serial.print("\nTime: ");
-            if (GPS.hour < 10) { Serial.print('0'); }
-            Serial.print(GPS.hour); Serial.print(':');
-            //Minutes
-            if (GPS.minute < 10) { Serial.print('0'); }
-            Serial.print(GPS.minute); Serial.print(':');
-            //Seconds
-            if (GPS.seconds < 10) { Serial.print('0'); }
-            Serial.print(GPS.seconds, DEC); Serial.print('.');
-            //Milliseconds
-            if (GPS.milliseconds < 10) { 
-            Serial.print("00");
-            } else if (GPS.milliseconds > 9 && GPS.milliseconds < 100) {
-            Serial.print("0");
-            }
-            Serial.println(GPS.milliseconds);
-            //------------
-
-            sprintf(data.timestamp, "%u:%u:%u:%u,", GPS.hour, GPS.minute, GPS.seconds, GPS.milliseconds); //Generate GPS timestamp string
-            Serial.println(GPS.seconds); //DEBUG
-            Serial.print("Added time: "); Serial.println(data.timestamp); //DEBUG
-
-            //---GETTING GPS DATA
-            data.GPSFix = GPS.fix;
-            Serial.print("Fix: "); Serial.print(data.GPSFix); //DEBUG
-            // Serial.print(" quality: "); Serial.println((int)GPS.fixquality);
-            // strcat(GPSPkt, GPS.fix?1:0); //Add GPS fix boolean to GPS packet
-            // Serial.print("Added fix: "); Serial.println(GPSPkt); //DEBUG
-
-            if (GPS.fix) {
-                Serial.print("Location: "); //DEBUG
-                data.latitude = GPS.latitude; data.lat = GPS.lat;
-                Serial.print(data.latitude, 4); Serial.print(data.lat); Serial.print(", "); //DEBUG
-                data.longitude = GPS.longitude; data.lon = GPS.lon;
-                Serial.print(data.longitude, 4); Serial.println(data.lon); //DEBUG
-            }
-            // Serial.print("Entire GPS packet: "); Serial.println(GPSPkt); //DEBUG
-        }
-
-        //-----------------------
-        //---Altimeter polling---
-        //-----------------------
-
-        data.altitude = baro.getAltitude();
-        // Serial.print("Altitude: "); Serial.print(data.altitude); Serial.println(" m"); //DEBUG
-
-        //-----------------
-        //---IMU POLLING---
-        //-----------------
-
-        //Get calibration status for each sensor.
-        bno.getCalibration(&data.system_cal, &data.gyro_cal, &data.accel_cal, &data.mag_cal);
-        // Serial.print("CALIBRATION: Sys="); Serial.print(data.system_cal, DEC); //DEBUG
-        // Serial.print(" Gyro="); Serial.print(data.gyro_cal, DEC); //DEBUG
-        // Serial.print(" Accel="); Serial.print(data.accel_cal, DEC); //DEBUG
-        // Serial.print(" Mag="); Serial.println(data.mag_cal, DEC); //DEBUG
-
-        if (data.gyro_cal == 3 && data.accel_cal == 3 && data.mag_cal == 3) {
-            // - VECTOR_ACCELEROMETER - m/s^2
-            // - VECTOR_GYROSCOPE     - rad/s
-            // - VECTOR_EULER         - degrees
-            // - VECTOR_LINEARACCEL   - m/s^2
-            imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
-            imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-            imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-            imu::Vector<3> linaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
-
-            //Add accelerometer data to data packet            
-            data.accelX = accel.x();
-            data.accelY = accel.y();
-            data.accelZ = accel.z();
-            //Display accelerometer data DEBUG
-            // Serial.print("aX: "); Serial.print(data.accelX);
-            // Serial.print(" aY: "); Serial.print(data.accelY);
-            // Serial.print(" aZ: "); Serial.print(data.accelZ);
-            // Serial.print("\t\t");
-
-            //Add gyroscope data to data packet
-            data.gyroX = gyro.x();
-            data.gyroY = gyro.y();
-            data.gyroZ = gyro.z();
-            //Display gyroscope data DEBUG
-            // Serial.print("gX: "); Serial.print(data.gyroX);
-            // Serial.print(" gY: "); Serial.print(data.gyroY);
-            // Serial.print(" gZ: "); Serial.print(data.gyroZ);
-            // Serial.print("\t\t");
-            
-            //Add euler rotation data to data packet
-            data.roll = euler.z();
-            data.pitch = euler.y();
-            data.yaw = euler.x();
-            //Display euler degress data DEBUG
-            // Serial.print("eX: "); Serial.print(data.roll);
-            // Serial.print(" eY: "); Serial.print(data.pitch);
-            // Serial.print(" eZ: "); Serial.print(data.yaw);
-            // Serial.print("\t\t");
-
-            //Add linear accleration data to data packet
-            data.linAccelX = linaccel.x();
-            data.linAccelY = linaccel.y();
-            data.linAccelZ = linaccel.z();
-            //Display linear accleration data DEBUG
-            // Serial.print("lX: "); Serial.print(data.linAccelX);
-            // Serial.print(" lY: "); Serial.print(data.linAccelX);
-            // Serial.print(" lZ: "); Serial.print(data.linAccelX);
-            // Serial.print("\t\t");
-            // Serial.println("");
-        }
-
-        //-------------------------
-        //---Packet transmission---
-        //-------------------------
-        logTelemPacket();
-        if (!manager.sendto((uint8_t *) &data, sizeof(data), SERVER_ADDRESS))
-            Serial.print("Transmit failed");
-        // rf95.waitPacketSent(100); // wait 100 mSec max for packet to be sent
-    }
 }
 
-boolean logTelemPacket() {
-    dataFile = SD.open(filename, FILE_WRITE);
-    if (dataFile) { //If datafile is open, write comma-delimitted telemetry packet to it.
-        // dataFile.println((uint8_t *) &data);
-        dataFile.print(data.timestamp);         dataFile.print(", ");
-        dataFile.print(data.GPSFix);            dataFile.print(", ");
-        dataFile.print(data.latitude);          dataFile.print(data.lat); dataFile.print(", ");
-        dataFile.print(data.longitude);         dataFile.print(data.lon); dataFile.print(", ");
-        dataFile.print(data.altitude);          dataFile.print(", ");
-        dataFile.print(data.system_cal);        dataFile.print(", ");
-        dataFile.print(data.gyro_cal);          dataFile.print(", ");
-        dataFile.print(data.accel_cal);         dataFile.print(", ");
-        dataFile.print(data.mag_cal);           dataFile.print(", ");
-        dataFile.print(data.accelX);            dataFile.print(", ");
-        dataFile.print(data.accelY);            dataFile.print(", ");
-        dataFile.print(data.accelZ);            dataFile.print(", ");
-        dataFile.print(data.gyroX);             dataFile.print(", ");
-        dataFile.print(data.gyroY);             dataFile.print(", ");
-        dataFile.print(data.gyroZ);             dataFile.print(", ");
-        dataFile.print(data.roll);              dataFile.print(", ");
-        dataFile.print(data.pitch);             dataFile.print(", ");
-        dataFile.print(data.yaw);               dataFile.print(", ");
-        dataFile.print(data.linAccelX);         dataFile.print(", ");
-        dataFile.print(data.linAccelY);         dataFile.print(", ");
-        dataFile.print(data.linAccelZ);         //dataFile.print(", ");
-        dataFile.println("");
-        dataFile.close();
-        return true;
+void loop() {
+    //-----------------
+    //---GPS polling---
+    //-----------------
+
+    if (ppsTriggered) {
+        ppsTriggered = false;
+        ledState = !ledState;
+        digitalWrite(LED_BUILTIN, ledState);
+
+        //TODO: Parse timestamp
+        Serial.print("Date/time: ");
+        Serial.print(nmea.getYear());
+        Serial.print('-');
+        Serial.print(int(nmea.getMonth()));
+        Serial.print('-');
+        Serial.print(int(nmea.getDay()));
+        Serial.print('T');
+        Serial.print(int(nmea.getHour()));
+        Serial.print(':');
+        Serial.print(int(nmea.getMinute()));
+        Serial.print(':');
+        Serial.print(int(nmea.getSecond()));
+        Serial.print(':');
+        Serial.println(int(nmea.getHundredths()));
+
+        // Output GPS information from previous second
+        data.GPSFix = nmea.isValid();
+        Serial.print("Valid fix: "); //DEBUG
+        Serial.println(data.GPSFix ? "yes" : "no"); //DEBUG
+
+        data.numSats = nmea.getNumSatellites();
+        Serial.print("Num. satellites: "); //DEBUG
+        Serial.println(data.numSats); //DEBUG
+
+        data.HDOP = nmea.getHDOP();
+        Serial.print("HDOP: "); //DEBUG
+        Serial.println(data.HDOP/10., 1); //DEBUG
+
+        data.latitude = nmea.getLatitude();
+        data.longitude = nmea.getLongitude();
+        Serial.print("Latitude (deg): "); //DEBUG
+        Serial.println(data.latitude / 1000000., 6); //DEBUG
+
+        Serial.print("Longitude (deg): "); //DEBUG
+        Serial.println(data.longitude / 1000000., 6); //DEBUG
+
+        Serial.print("Altitude (m): ");  //DEBUG
+        if (nmea.getAltitude(data.gps_altitude))
+            Serial.println(data.gps_altitude / 1000., 3); //DEBUG
+        else
+            Serial.println("not available"); //DEBUG
+
+        data.gps_speed = nmea.getSpeed();
+        Serial.print("Speed (kts): "); //DEBUG
+        Serial.println(data.gps_speed / 1000., 3); //DEBUG
+
+        data.gps_course = nmea.getCourse();
+        Serial.print("Course (deg): "); //DEBUG
+        Serial.println(data.gps_course / 1000., 3); //DEBUG
+
+        Serial.println("-----------------------"); //DEBUG
+        nmea.clear();
     }
-    dataFile.close();
-    return false;
+
+    while (!ppsTriggered && gps.available()) {
+        char c = gps.read();
+        if (GPS_ECHO) Serial.print(c);
+        nmea.process(c);
+    }
+
+    //-----------------------
+    //---Altimeter polling---
+    //-----------------------
+
+    // data.altitude = baro.getAltitude();
+    // Serial.print("Altitude: "); Serial.print(data.altitude); Serial.println(" m"); //DEBUG
+
+    //-----------------
+    //---IMU POLLING---
+    //-----------------
+
+    //Get calibration status for each sensor.
+    bno.getCalibration(&data.system_cal, &data.gyro_cal, &data.accel_cal, &data.mag_cal);
+    // Serial.print("CALIBRATION: Sys="); Serial.print(data.system_cal, DEC); //DEBUG
+    // Serial.print(" Gyro="); Serial.print(data.gyro_cal, DEC); //DEBUG
+    // Serial.print(" Accel="); Serial.print(data.accel_cal, DEC); //DEBUG
+    // Serial.print(" Mag="); Serial.println(data.mag_cal, DEC); //DEBUG
+
+    if (data.gyro_cal == 3 && data.accel_cal == 3 && data.mag_cal == 3) {
+        // - VECTOR_ACCELEROMETER - m/s^2
+        // - VECTOR_GYROSCOPE     - rad/s
+        // - VECTOR_EULER         - degrees
+        // - VECTOR_LINEARACCEL   - m/s^2
+        imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
+        imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+        imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+        imu::Vector<3> linaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+
+        //Add accelerometer data to data packet            
+        data.accelX = accel.x();
+        data.accelY = accel.y();
+        data.accelZ = accel.z();
+        //Display accelerometer data DEBUG
+        // Serial.print("aX: "); Serial.print(data.accelX);
+        // Serial.print(" aY: "); Serial.print(data.accelY);
+        // Serial.print(" aZ: "); Serial.print(data.accelZ);
+        // Serial.print("\t\t");
+
+        //Add gyroscope data to data packet
+        data.gyroX = gyro.x();
+        data.gyroY = gyro.y();
+        data.gyroZ = gyro.z();
+        //Display gyroscope data DEBUG
+        // Serial.print("gX: "); Serial.print(data.gyroX);
+        // Serial.print(" gY: "); Serial.print(data.gyroY);
+        // Serial.print(" gZ: "); Serial.print(data.gyroZ);
+        // Serial.print("\t\t");
+        
+        //Add euler rotation data to data packet
+        data.roll = euler.z();
+        data.pitch = euler.y();
+        data.yaw = euler.x();
+        //Display euler degress data DEBUG
+        // Serial.print("eX: "); Serial.print(data.roll);
+        // Serial.print(" eY: "); Serial.print(data.pitch);
+        // Serial.print(" eZ: "); Serial.print(data.yaw);
+        // Serial.print("\t\t");
+
+        //Add linear accleration data to data packet
+        data.linAccelX = linaccel.x();
+        data.linAccelY = linaccel.y();
+        data.linAccelZ = linaccel.z();
+        //Display linear accleration data DEBUG
+        // Serial.print("lX: "); Serial.print(data.linAccelX);
+        // Serial.print(" lY: "); Serial.print(data.linAccelX);
+        // Serial.print(" lZ: "); Serial.print(data.linAccelX);
+        // Serial.print("\t\t");
+        // Serial.println("");
+    }
+
+    //-------------------------
+    //---Packet transmission---
+    //-------------------------
+    if (!manager.sendto((uint8_t *) &data, sizeof(data), SERVER_ADDRESS))
+        Serial.print("Transmit failed");
+    // rf95.waitPacketSent(100); // wait 100 mSec max for packet to be sent
+}
+
+void ppsHandler(void) {
+	ppsTriggered = true;
+	// Serial.println("triggered!"); //DEBUG
+}
+
+void printUnknownSentence(const MicroNMEA& nmea) {
+	Serial.println();
+	Serial.print("Unknown sentence: ");
+	Serial.println(nmea.getSentence());
+}
+
+void gpsHardwareReset() {
+	// Empty input buffer
+	while (gps.available())
+		gps.read();
+
+	digitalWrite(A0, LOW);
+	delay(50);
+	digitalWrite(A0, HIGH);
+
+	// Reset is complete when the first valid message is received
+	while (1) {
+		while (gps.available()) {
+			char c = gps.read();
+			if (nmea.process(c))
+				return;
+
+		}
+	}
 }

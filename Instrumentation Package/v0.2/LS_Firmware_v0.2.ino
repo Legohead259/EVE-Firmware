@@ -40,8 +40,6 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
-#include "barometer.h"
-#include "i2c.h"
 #include <SPI.h>
 #include <SD.h>
 #include <MicroNMEA.h>
@@ -67,9 +65,17 @@ char nmeaBuffer[100];
 MicroNMEA nmea(nmeaBuffer, sizeof(nmeaBuffer));
 bool ledState = LOW;
 volatile bool ppsTriggered = false;
-const bool GPS_ECHO = false;
 
 Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x28);
+
+I2C i2c;
+Barometer baro(i2c);
+
+//DEBUG Flags
+const bool GPS_ECHO = false;
+const bool GPS_DEBUG = false;
+const bool IMU_DEBUG = false;
+const bool PACKET_DEBUG = true;
 
 void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
@@ -142,13 +148,11 @@ void setup() {
     delay(1000);
     bno.setExtCrystalUse(true);
 
-    //------------------------
-    //---IMU INITIALIZATION---
-    //------------------------
+    //------------------------------
+    //---ALTIMETER INITIALIZATION---
+    //------------------------------
 
-    I2C i2c; //NOTE: Check for char something[x]; in this code, that may be that cause of corruption...
-    Barometer baro(i2c); //NOTE: Check for char something[x]; in this code, that may be that cause of corruption...
-    baro.calibrateStartingHeight();
+    // baro.calibrateStartingHeight();
     // Serial.println("Height Calibrated!"); //DEBUG
 }
 
@@ -163,57 +167,18 @@ void loop() {
         digitalWrite(LED_BUILTIN, ledState);
 
         //TODO: Parse timestamp
-        Serial.print("Date/time: ");
-        Serial.print(nmea.getYear());
-        Serial.print('-');
-        Serial.print(int(nmea.getMonth()));
-        Serial.print('-');
-        Serial.print(int(nmea.getDay()));
-        Serial.print('T');
-        Serial.print(int(nmea.getHour()));
-        Serial.print(':');
-        Serial.print(int(nmea.getMinute()));
-        Serial.print(':');
-        Serial.print(int(nmea.getSecond()));
-        Serial.print(':');
-        Serial.println(int(nmea.getHundredths()));
 
-        // Output GPS information from previous second
         data.GPSFix = nmea.isValid();
-        Serial.print("Valid fix: "); //DEBUG
-        Serial.println(data.GPSFix ? "yes" : "no"); //DEBUG
-
         data.numSats = nmea.getNumSatellites();
-        Serial.print("Num. satellites: "); //DEBUG
-        Serial.println(data.numSats); //DEBUG
-
         data.HDOP = nmea.getHDOP();
-        Serial.print("HDOP: "); //DEBUG
-        Serial.println(data.HDOP/10., 1); //DEBUG
-
         data.latitude = nmea.getLatitude();
         data.longitude = nmea.getLongitude();
-        Serial.print("Latitude (deg): "); //DEBUG
-        Serial.println(data.latitude / 1000000., 6); //DEBUG
-
-        Serial.print("Longitude (deg): "); //DEBUG
-        Serial.println(data.longitude / 1000000., 6); //DEBUG
-
-        Serial.print("Altitude (m): ");  //DEBUG
-        if (nmea.getAltitude(data.gps_altitude))
-            Serial.println(data.gps_altitude / 1000., 3); //DEBUG
-        else
-            Serial.println("not available"); //DEBUG
-
+        nmea.getAltitude(data.gps_altitude);
         data.gps_speed = nmea.getSpeed();
-        Serial.print("Speed (kts): "); //DEBUG
-        Serial.println(data.gps_speed / 1000., 3); //DEBUG
-
         data.gps_course = nmea.getCourse();
-        Serial.print("Course (deg): "); //DEBUG
-        Serial.println(data.gps_course / 1000., 3); //DEBUG
 
-        Serial.println("-----------------------"); //DEBUG
+        if (GPS_DEBUG) printGPSData(); //DEBUG
+
         nmea.clear();
     }
 
@@ -227,7 +192,7 @@ void loop() {
     //---Altimeter polling---
     //-----------------------
 
-    // data.altitude = baro.getAltitude();
+    // data.baro_altitudse = baro.getAltitude();
     // Serial.print("Altitude: "); Serial.print(data.altitude); Serial.println(" m"); //DEBUG
 
     //-----------------
@@ -236,10 +201,6 @@ void loop() {
 
     //Get calibration status for each sensor.
     bno.getCalibration(&data.system_cal, &data.gyro_cal, &data.accel_cal, &data.mag_cal);
-    // Serial.print("CALIBRATION: Sys="); Serial.print(data.system_cal, DEC); //DEBUG
-    // Serial.print(" Gyro="); Serial.print(data.gyro_cal, DEC); //DEBUG
-    // Serial.print(" Accel="); Serial.print(data.accel_cal, DEC); //DEBUG
-    // Serial.print(" Mag="); Serial.println(data.mag_cal, DEC); //DEBUG
 
     if (data.gyro_cal == 3 && data.accel_cal == 3 && data.mag_cal == 3) {
         // - VECTOR_ACCELEROMETER - m/s^2
@@ -255,49 +216,31 @@ void loop() {
         data.accelX = accel.x();
         data.accelY = accel.y();
         data.accelZ = accel.z();
-        //Display accelerometer data DEBUG
-        // Serial.print("aX: "); Serial.print(data.accelX);
-        // Serial.print(" aY: "); Serial.print(data.accelY);
-        // Serial.print(" aZ: "); Serial.print(data.accelZ);
-        // Serial.print("\t\t");
 
         //Add gyroscope data to data packet
         data.gyroX = gyro.x();
         data.gyroY = gyro.y();
         data.gyroZ = gyro.z();
-        //Display gyroscope data DEBUG
-        // Serial.print("gX: "); Serial.print(data.gyroX);
-        // Serial.print(" gY: "); Serial.print(data.gyroY);
-        // Serial.print(" gZ: "); Serial.print(data.gyroZ);
-        // Serial.print("\t\t");
         
         //Add euler rotation data to data packet
         data.roll = euler.z();
         data.pitch = euler.y();
         data.yaw = euler.x();
-        //Display euler degress data DEBUG
-        // Serial.print("eX: "); Serial.print(data.roll);
-        // Serial.print(" eY: "); Serial.print(data.pitch);
-        // Serial.print(" eZ: "); Serial.print(data.yaw);
-        // Serial.print("\t\t");
 
         //Add linear accleration data to data packet
         data.linAccelX = linaccel.x();
         data.linAccelY = linaccel.y();
         data.linAccelZ = linaccel.z();
-        //Display linear accleration data DEBUG
-        // Serial.print("lX: "); Serial.print(data.linAccelX);
-        // Serial.print(" lY: "); Serial.print(data.linAccelX);
-        // Serial.print(" lZ: "); Serial.print(data.linAccelX);
-        // Serial.print("\t\t");
-        // Serial.println("");
     }
+    if (IMU_DEBUG) printIMUData();
 
     //-------------------------
     //---Packet transmission---
     //-------------------------
+
     if (!manager.sendto((uint8_t *) &data, sizeof(data), SERVER_ADDRESS))
         Serial.print("Transmit failed");
+    if (PACKET_DEBUG) printDataPacket();
     // rf95.waitPacketSent(100); // wait 100 mSec max for packet to be sent
 }
 
@@ -327,7 +270,114 @@ void gpsHardwareReset() {
 			char c = gps.read();
 			if (nmea.process(c))
 				return;
-
 		}
 	}
+}
+
+void printGPSData() {
+    Serial.print("Date/time: ");
+    Serial.print(nmea.getYear());
+    Serial.print('-');
+    Serial.print(int(nmea.getMonth()));
+    Serial.print('-');
+    Serial.print(int(nmea.getDay()));
+    Serial.print('T');
+    Serial.print(int(nmea.getHour()));
+    Serial.print(':');
+    Serial.print(int(nmea.getMinute()));
+    Serial.print(':');
+    Serial.print(int(nmea.getSecond()));
+    Serial.print(':');
+    Serial.println(int(nmea.getHundredths()));
+
+    Serial.print("Valid fix: "); //DEBUG
+    Serial.println(data.GPSFix ? "yes" : "no"); //DEBUG
+
+    Serial.print("Num. satellites: "); //DEBUG
+    Serial.println(data.numSats); //DEBUG
+
+    Serial.print("HDOP: "); //DEBUG
+    Serial.println(data.HDOP/10., 1); //DEBUG
+
+    Serial.print("Latitude (deg): "); //DEBUG
+    Serial.println(data.latitude / 1000000., 6); //DEBUG
+    Serial.print("Longitude (deg): "); //DEBUG
+    Serial.println(data.longitude / 1000000., 6); //DEBUG
+
+    Serial.print("Altitude (m): ");  //DEBUG
+    if (nmea.getAltitude(data.gps_altitude))
+        Serial.println(data.gps_altitude / 1000., 3); //DEBUG
+    else
+        Serial.println("not available"); //DEBUG
+
+    Serial.print("Speed (kts): "); //DEBUG
+    Serial.println(data.gps_speed / 1000., 3); //DEBUG
+
+    Serial.print("Course (deg): "); //DEBUG
+    Serial.println(data.gps_course / 1000., 3); //DEBUG
+
+    Serial.println("-----------------------"); //DEBUG
+}
+
+void printIMUData() {
+    // Display calibration data
+    Serial.print("CALIBRATION: Sys="); Serial.print(data.system_cal, DEC); //DEBUG
+    Serial.print(" Gyro="); Serial.print(data.gyro_cal, DEC); //DEBUG
+    Serial.print(" Accel="); Serial.print(data.accel_cal, DEC); //DEBUG
+    Serial.print(" Mag="); Serial.println(data.mag_cal, DEC); //DEBUG
+
+    // Display accelerometer data
+    Serial.print("aX: "); Serial.print(data.accelX);
+    Serial.print(" aY: "); Serial.print(data.accelY);
+    Serial.print(" aZ: "); Serial.print(data.accelZ);
+    Serial.print("\t\t");
+
+    // Display gyroscope data
+    Serial.print("gX: "); Serial.print(data.gyroX);
+    Serial.print(" gY: "); Serial.print(data.gyroY);
+    Serial.print(" gZ: "); Serial.print(data.gyroZ);
+    Serial.print("\t\t");
+
+    // Display euler degress data
+    Serial.print("eX: "); Serial.print(data.roll);
+    Serial.print(" eY: "); Serial.print(data.pitch);
+    Serial.print(" eZ: "); Serial.print(data.yaw);
+    Serial.print("\t\t");
+
+    //Display linear accleration data
+    Serial.print("lX: "); Serial.print(data.linAccelX);
+    Serial.print(" lY: "); Serial.print(data.linAccelX);
+    Serial.print(" lZ: "); Serial.print(data.linAccelX);
+    Serial.print("\t\t");
+    Serial.println("");
+}
+
+void printDataPacket() {
+    Serial.print(data.timestamp); Serial.print(", ");
+    Serial.print(data.GPSFix); Serial.print(", ");
+    Serial.print(data.numSats); Serial.print(", ");
+    Serial.print(data.HDOP); Serial.print(", ");
+    Serial.print(data.latitude); Serial.print(", ");
+    Serial.print(data.longitude); Serial.print(", ");
+    Serial.print(data.gps_altitude); Serial.print(", ");
+    Serial.print(data.gps_speed); Serial.print(", ");
+    Serial.print(data.gps_course); Serial.print(", ");
+    Serial.print(data.baro_altitude); Serial.print(", ");
+    Serial.print(data.system_cal); Serial.print(", ");
+    Serial.print(data.gyro_cal); Serial.print(", ");
+    Serial.print(data.accel_cal); Serial.print(", ");
+    Serial.print(data.mag_cal); Serial.print(", ");
+    Serial.print(data.accelX); Serial.print(", ");
+    Serial.print(data.accelY); Serial.print(", ");
+    Serial.print(data.accelZ); Serial.print(", ");
+    Serial.print(data.gyroX); Serial.print(", ");
+    Serial.print(data.gyroY); Serial.print(", ");
+    Serial.print(data.gyroZ); Serial.print(", ");
+    Serial.print(data.roll); Serial.print(", ");
+    Serial.print(data.pitch); Serial.print(", ");
+    Serial.print(data.yaw); Serial.print(", ");
+    Serial.print(data.linAccelX); Serial.print(", ");
+    Serial.print(data.linAccelY); Serial.print(", ");
+    Serial.print(data.linAccelZ); //Serial.print(", ");
+    Serial.println();
 }

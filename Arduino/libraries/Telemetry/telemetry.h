@@ -1,4 +1,4 @@
-typedef struct TELEMETRY {
+struct TELEMETRY {
     char timestamp[20];
     bool GPSFix;
     uint8_t numSats;
@@ -8,7 +8,7 @@ typedef struct TELEMETRY {
     long gps_altitude;          //In millimeters (devide by 1000. when displaying to get meters)
     long gps_speed;             //In thousandths of a knot (divide by 1000. when displaying)
     long gps_course;            //In thousandths of a degree (divide by 1000. when displaying)
-    float press_altitude;
+    float baro_altitude;
     uint8_t system_cal = 0;
     uint8_t gyro_cal = 0;
     uint8_t accel_cal = 0;
@@ -26,3 +26,5 @@ typedef struct TELEMETRY {
     float linAccelY;
     float linAccelZ;
 };
+
+void printDataPacket();

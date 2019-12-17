@@ -46,6 +46,7 @@
 #include <telemetry.h>
 #include <Wire.h>
 #include <MPL3115A2.h>
+#include <Adafruit_SHT31.h>
 
 #define RFM95_CS A5
 #define RFM95_RST A4
@@ -60,10 +61,16 @@
 
 #define FLIGHT_SAFE false
 
+//==============================
+//=====OBJECT INSTANTIATION=====
+//==============================
+
+//Radio and packet
 TELEMETRY data;
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 RHDatagram manager(rf95, MY_ADDRESS);
 
+//GPS
 HardwareSerial& gps = Serial1;
 char nmeaBuffer[100];
 MicroNMEA nmea(nmeaBuffer, sizeof(nmeaBuffer));
@@ -74,15 +81,26 @@ float lastMillis = millis();
 float curMillis = 0;
 float curMSecond = 0;
 
+//IMU
 Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x28);
 
+//Barometer
 MPL3115A2 baro;
+
+//SHT31-D
+Adafruit_SHT31 sht31 = Adafruit_SHT31();
 
 //DEBUG Flags
 const bool GPS_ECHO = false;
 const bool GPS_DEBUG = false;
+const bool BARO_DEBUG = false;
 const bool IMU_DEBUG = false;
+const bool HUMID_DEBUG = false;
 const bool PACKET_DEBUG = true;
+
+//===========================
+//=====ARDUINO FUNCTIONS=====
+//===========================
 
 void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
@@ -142,6 +160,18 @@ void setup() {
 	pinMode(INTERRUPT_PIN, INPUT);
 	attachInterrupt(INTERRUPT_PIN, ppsHandler, RISING);
 
+    //------------------------------
+    //---ALTIMETER INITIALIZATION---
+    //------------------------------
+
+    if (!baro.begin()) {
+        Serial.println("Couldnt find sensor");
+        while(1); // Block code
+    }
+    baro.setOversampleRate(7);
+    baro.setModeActive();
+    baro.enableEventFlags();
+
     //------------------------
     //---IMU INITIALIZATION---
     //------------------------
@@ -154,26 +184,19 @@ void setup() {
     delay(1000);
     bno.setExtCrystalUse(true);
 
-    //------------------------------
-    //---ALTIMETER INITIALIZATION---
-    //------------------------------
+    //-----------------------------
+    //---HUMIDITY INITIALIZATION---
+    //-----------------------------
 
-    if (!baro.begin()) {
-        Serial.println("Couldnt find sensor");
-        while(1); // Block code
+    if (!sht31.begin(0x44)) {   // Set to 0x45 for alternate i2c addr
+        Serial.println("Couldn't find SHT31");
+        while (1); // Block code
     }
-    // baro.setSeaPressure(baro.getPressure()); //Zeros pressure gauge to local atmospheric pressure
-    // baro.calibrateStartingHeight();
-    // baro.setModeAltimeter(); //Measure altitude
-    baro.setModeBarometer(); //Meaure pressure
-    baro.setOversampleRate(7);
-    baro.setModeActive();
-    baro.enableEventFlags();
 }
 
 void loop() {
     //-----------------
-    //---GPS polling---
+    //---GPS POLLING---
     //-----------------
 
     //Parse milliseconds for timestamp
@@ -220,13 +243,20 @@ void loop() {
     }
 
     //-----------------------
-    //---Altimeter polling---
+    //---ALTIMETER POLLING---
     //-----------------------
 
-    data.pressure = baro.readPressure();
-    // data.baro_altitude = baro.readAltitude();
-    // Serial.print("Pressure: "); Serial.print(data.pressure); Serial.println(" Pa"); //DEBUG
-    // Serial.print("Altitude: "); Serial.print(data.baro_altitude); Serial.println(" m"); //DEBUG
+    baro.setModeBarometer(); //Measure pressure
+    data.baro_pressure = baro.readPressure();
+    baro.setModeAltimeter(); //Measure altitude
+    data.baro_altitude = baro.readAltitude();
+    data.baro_temperature = baro.readTemp();
+
+    if (BARO_DEBUG) {
+        Serial.print("Pressure: "); Serial.print(data.baro_pressure); Serial.println(" Pa");
+        Serial.print("Altitude: "); Serial.print(data.baro_altitude); Serial.println(" m");
+        Serial.print("Temperature: "); Serial.print(data.baro_temperature); Serial.println("°C");
+    }
 
     //-----------------
     //---IMU POLLING---
@@ -236,14 +266,10 @@ void loop() {
     bno.getCalibration(&data.system_cal, &data.gyro_cal, &data.accel_cal, &data.mag_cal);
 
     if (data.gyro_cal == 3 && data.accel_cal == 3 && data.mag_cal == 3) {
-        // - VECTOR_ACCELEROMETER - m/s^2
-        // - VECTOR_GYROSCOPE     - rad/s
-        // - VECTOR_EULER         - degrees
-        // - VECTOR_LINEARACCEL   - m/s^2
-        imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
-        imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
-        imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-        imu::Vector<3> linaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+        imu::Vector<3> accel = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);    // - m/s^2
+        imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);         // - rad/s
+        imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);            // - degrees
+        imu::Vector<3> linaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);   // - m/s^2
 
         //Add accelerometer data to data packet            
         data.accelX = accel.x();
@@ -265,17 +291,36 @@ void loop() {
         data.linAccelY = linaccel.y();
         data.linAccelZ = linaccel.z();
     }
+
+    data.imu_temperature = bno.getTemp();
     if (IMU_DEBUG) printIMUData();
 
+    //----------------------
+    //---HUMIDITY POLLING---
+    //----------------------
+
+    //TODO: Incorporate humidity sensor
+    data.temperature = sht31.readTemperature();
+    data.humdity = sht31.readHumidity();
+    if (HUMID_DEBUG) {
+        Serial.print("Temperature: "); Serial.print(data.temperature); Serial.println("°C");
+        Serial.print("Humidity: "); Serial.print(data.humdity); Serial.println("%");
+    }
+
     //-------------------------
-    //---Packet transmission---
+    //---PACKET TRANSMISSION---
     //-------------------------
 
-    if (!manager.sendto((uint8_t *) &data, sizeof(data), SERVER_ADDRESS))
+    data.packetSize = sizeof(data);
+    if (!manager.sendto((uint8_t *) &data, data.packetSize, SERVER_ADDRESS))
         Serial.print("Transmit failed");
     if (PACKET_DEBUG) printDataPacket();
     // rf95.waitPacketSent(100); // wait 100 mSec max for packet to be sent
 }
+
+//===============================
+//=====GPS HANDLER FUNCTIONS=====
+//===============================
 
 void ppsHandler(void) {
 	ppsTriggered = true;
@@ -306,6 +351,10 @@ void gpsHardwareReset() {
 		}
 	}
 }
+
+//===============================
+//=====DEBUG PRINT FUNCTIONS=====
+//===============================
 
 void printGPSData() {
     Serial.print("Date/time: ");
@@ -371,7 +420,7 @@ void printIMUData() {
     Serial.print(" gZ: "); Serial.print(data.gyroZ);
     Serial.print("\t\t");
 
-    // Display euler degress data
+    // Display euler degrees data
     Serial.print("eX: "); Serial.print(data.roll);
     Serial.print(" eY: "); Serial.print(data.pitch);
     Serial.print(" eZ: "); Serial.print(data.yaw);
@@ -382,6 +431,8 @@ void printIMUData() {
     Serial.print(" lY: "); Serial.print(data.linAccelX);
     Serial.print(" lZ: "); Serial.print(data.linAccelX);
     Serial.print("\t\t");
+
+    Serial.print("Temp: "); Serial.print(data.imu_temperature);
     Serial.println("");
 }
 
@@ -395,7 +446,9 @@ void printDataPacket() {
     Serial.print(data.altitude); Serial.print(", ");
     Serial.print(data.gps_speed); Serial.print(", ");
     Serial.print(data.gps_course); Serial.print(", ");
-    Serial.print(data.pressure); Serial.print(", ");
+    Serial.print(data.baro_pressure); Serial.print(", ");
+    Serial.print(data.baro_altitude); Serial.print(", ");
+    Serial.print(data.baro_temperature); Serial.print(", ");
     Serial.print(data.system_cal); Serial.print(", ");
     Serial.print(data.gyro_cal); Serial.print(", ");
     Serial.print(data.accel_cal); Serial.print(", ");
@@ -411,6 +464,9 @@ void printDataPacket() {
     Serial.print(data.yaw); Serial.print(", ");
     Serial.print(data.linAccelX); Serial.print(", ");
     Serial.print(data.linAccelY); Serial.print(", ");
-    Serial.print(data.linAccelZ); //Serial.print(", ");
+    Serial.print(data.linAccelZ); Serial.print(", ");
+    Serial.print(data.temperature); Serial.print(", ");
+    Serial.print(data.humdity); Serial.print(", ");
+    Serial.print(data.packetSize);
     Serial.println();
 }

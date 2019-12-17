@@ -9,7 +9,9 @@ struct TELEMETRY {
     long altitude;              //In millimeters (devide by 1000. when displaying to get meters)
     long gps_speed;             //In thousandths of a knot (divide by 1000. when displaying)
     long gps_course;            //In thousandths of a degree (divide by 1000. when displaying)
-    float pressure;             //Pascals
+    float baro_pressure;        //Pascals
+    float baro_altitude;        //Meters
+    float baro_temperature;     //Celsius
     uint8_t system_cal = 0;     //IMU system calibration, 0-3 with 3 being fully calibrated
     uint8_t gyro_cal = 0;       //IMU gyroscope calibration, 0-3 with 3 being fully calibrated
     uint8_t accel_cal = 0;      //IMU accelerometer calibration, 0-3 with 3 being fully calibrated
@@ -26,4 +28,8 @@ struct TELEMETRY {
     float linAccelX;
     float linAccelY;
     float linAccelZ;
+    float imu_temperature;      //°Celsius from the IMU
+    float temperature;          //°Celsius (ambient) from the SHT31-D sensor
+    float humdity;              //% from the SHT31-D sensor
+    int packetSize;             
 };

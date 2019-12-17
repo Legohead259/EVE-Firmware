@@ -54,10 +54,10 @@ boolean Adafruit_MPL3115A2::begin(TwoWire *twoWire) {
   }
 
   write8(MPL3115A2_CTRL_REG1, MPL3115A2_CTRL_REG1_RST);
-  delay(10);
+  // delay(10);
 
   while (read8(MPL3115A2_CTRL_REG1) & MPL3115A2_CTRL_REG1_RST)
-    delay(10);
+    // delay(10);
 
   _ctrl_reg1.reg = MPL3115A2_CTRL_REG1_OS128 | MPL3115A2_CTRL_REG1_ALT;
 
@@ -77,7 +77,7 @@ float Adafruit_MPL3115A2::getPressure() {
   uint32_t pressure;
 
   while (read8(MPL3115A2_CTRL_REG1) & MPL3115A2_CTRL_REG1_OST)
-    delay(10);
+    // delay(10);
 
   _ctrl_reg1.bit.ALT = 0;
   write8(MPL3115A2_CTRL_REG1, _ctrl_reg1.reg);
@@ -88,7 +88,7 @@ float Adafruit_MPL3115A2::getPressure() {
   uint8_t sta = 0;
   while (!(sta & MPL3115A2_REGISTER_STATUS_PDR)) {
     sta = read8(MPL3115A2_REGISTER_STATUS);
-    delay(10);
+    // delay(10);
   }
   _i2c->beginTransmission(MPL3115A2_ADDRESS); // start transmission to device
   _i2c->write(MPL3115A2_REGISTER_PRESSURE_MSB);
@@ -116,7 +116,7 @@ float Adafruit_MPL3115A2::getAltitude() {
   int32_t alt;
 
   while (read8(MPL3115A2_CTRL_REG1) & MPL3115A2_CTRL_REG1_OST)
-    delay(10);
+    // delay(10);
 
   _ctrl_reg1.bit.ALT = 1;
   write8(MPL3115A2_CTRL_REG1, _ctrl_reg1.reg);
@@ -127,7 +127,7 @@ float Adafruit_MPL3115A2::getAltitude() {
   uint8_t sta = 0;
   while (!(sta & MPL3115A2_REGISTER_STATUS_PDR)) {
     sta = read8(MPL3115A2_REGISTER_STATUS);
-    delay(10);
+    // delay(10);
   }
   _i2c->beginTransmission(MPL3115A2_ADDRESS); // start transmission to device
   _i2c->write(MPL3115A2_REGISTER_PRESSURE_MSB);
@@ -170,7 +170,7 @@ float Adafruit_MPL3115A2::getTemperature() {
   uint8_t sta = 0;
   while (!(sta & MPL3115A2_REGISTER_STATUS_TDR)) {
     sta = read8(MPL3115A2_REGISTER_STATUS);
-    delay(10);
+    // delay(10);
   }
   _i2c->beginTransmission(MPL3115A2_ADDRESS); // start transmission to device
   _i2c->write(MPL3115A2_REGISTER_TEMP_MSB);

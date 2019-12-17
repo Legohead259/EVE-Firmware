@@ -33,15 +33,18 @@ Adafruit_MPL3115A2 baro = Adafruit_MPL3115A2();
 void setup() {
   Serial.begin(9600);
   Serial.println("Adafruit_MPL3115A2 test!");
+
+  if (! baro.begin()) {
+    Serial.println("Couldnt find sensor");
+    return;
+  }
+
+  baro.setSeaPressure(baro.getPressure()); //Zeros pressure gauge to local atmospheric pressure
 }
 
 float last_altm = 0;
 
 void loop() {
-  if (! baro.begin()) {
-    Serial.println("Couldnt find sensor");
-    return;
-  }
   
 //  float pascals = baro.getPressure();
   // Our weather page presents pressure in Inches (Hg)

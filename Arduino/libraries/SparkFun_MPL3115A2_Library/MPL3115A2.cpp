@@ -34,6 +34,7 @@
 #include <Wire.h>
 
 #include "MPL3115A2.h"
+// #include <Arduino.h>
 
 MPL3115A2::MPL3115A2()
 {
@@ -98,6 +99,13 @@ float MPL3115A2::readAltitude()
 float MPL3115A2::readAltitudeFt()
 {
   return(readAltitude() * 3.28084);
+}
+
+//Returns the altitude in meters above gorund level (AGL)
+//Returns -9999 if the starting height has not been calibrated properly
+float MPL3115A2::readAltitudeAGL() {
+	if (startHeightCal) return(readAltitude()-startingHeight);
+	else return(-9999);
 }
 
 //Reads the current pressure in Pa
@@ -270,6 +278,28 @@ void MPL3115A2::setOversampleRate(byte sampleRate)
 void MPL3115A2::enableEventFlags()
 {
   IIC_Write(PT_DATA_CFG, 0x07); // Enable all three pressure and temp event flags 
+}
+
+bool MPL3115A2::calibrateStartingHeight()
+{
+	int failzone = 1;
+    float total = 0;
+    const uint8_t reps = 30;
+    for (uint8_t i = 0; i < reps; i++)
+    {
+        total += readAltitude();
+        delay(100); //Minimum sample interval. Default is 66
+        // Serial.print(i); Serial.print(": "); Serial.println(total);  //DEBUG
+    }
+    startingHeight = total / reps;
+
+    if ((startingHeight-readAltitude()) < failzone && (startingHeight-readAltitude()) > -failzone) { //Check if the altitude is truely zeroed
+		startHeightCal = true;
+        return true;
+	}
+    else {
+        return false;
+	}
 }
 
 //Clears then sets the OST bit which causes the sensor to immediately take another reading

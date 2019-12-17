@@ -1,38 +1,39 @@
 /**
- * PROJECT PHOTON
+ * PROJECT EVE
  * FLORIDA INSTITUTE OF TECHNOLOGY, OEMS DEPARTMENT
  * UNDERWATER TECHNOLOGY LABORATORY
  * Supervising Professor: Dr. Stephen Wood, Ph.D, PE
  * 
- * Launchsonde Firmware Version 0.1.3 Created 11/23/2019 By Braidan Duffy
- * NOTE: THERE IS A BUG THAT IS CORRUPTING THE BOOTLOADER OF THE ADAFRUIT FEATHER 32u4!!!!!!
- * 
+ * @file Launchsonde Firmware Version 0.2 
+ * @date 12/12/2019
+ * @author Braidan Duffy
  * 
  * Theory of Operation:
- * This firmware is intended to relay instrumentation data from the launchsonde to a ground station using the LoRa RFM95 chipset
- * On startup, the firmware initializes the chipsets and prepares the file format for the SD Card logging
- * To create a file for logging, the firmware captures the current date from the onboard RTC and uses that as the name for the .txt file
- * If there has already been a file for that date created, the appropriate log number is appended to the name
- * The firmware then opens the file and if it cannot, it blocks the code from continuing further
- * NOTE: This block is non-resettable besides a full hardware reset
+ * This firmware records data from onboard sensors and formats them into a data packet for transmission to a receiving ground station.
+ * Currently, the implemented hardware is an RFM95W radio, MTK3339 GPS module, MPL3115A2 altimeter/barometer, BNO055 9DOF IMU, and SHT31-D humidity/temperature sensor
+ * The firmware starts by instantiating and initializing each component in the order listed above
+ * The radio is setup with a datagram packet manager from the RadioHead library that allows for better management of the packet transmission
+ * If the radio cannot be initialized, the code is blocked from further execution
+ * The GPS initializes by first opening the serial communication port and resetting it. If the serial port cannot be opened, code execution is blocked
+ * Then, the firmware sends commands that control the output NMEA strings sent by the module and attaches an interrupt
+ * This interrupt is connected to the PPS pin of the GPS which pulses everytime the GPS outputs a new NMEA string
+ * The interrupt triggers a flag to flip, kicking off the NMEA parsing library.
+ * Next, the firmware initializes the barometric altimeter
+ * If the altimeter cannot be started, further code execution is blocked
+ * The altimeter is then configured with the maximum oversampling ratio (see MP3115A2 datasheet for details) and activated
+ * Then, the IMU is initialized and configured according to the Adafruit example code. If the sensor cannot be found, code execution is blocked
+ * Finally, the humidity sensor is initialized and like the other two, code execution is blocked if it cannot be found.
  * 
+ * TODO: Raise and relay errors for sensor initialization failures
+ * NOTE: Execution blocks are non-resettable besides a full hardware reset
  * 
- * In loop(), the firmware begins by instantiating the barometer/altimeter
- * NOTE: due to a bug in the current barometer library (as of 10/21/2019), the barometer MUST be instantiated in the loop or the bootloader corrupts
- * The firmware then calibrates the starting height of the barometer using its built-in function
- * Then, the timestamp is captured using the onboard RTC and millis() function of the microcontroller and added to the TELEMETRY data packet
- * The altitude is polled from the barometer and added to the TELEMETRY packet
- * The firmware polls the IMU and checks the calibration data from its three sensors
- * Each sensor has a calibration value from 0-3 where 0 is uncalibrated and 3 is fully calibrated
- * The firmware does not poll IMU sensor data unless the three sensors are calibrated and thus, the IMU data in the TELEMETRY packet will be 0
- * Once calibrated, the firmware polls the IMU data and adds it to the TELEMETRY packet
- * Then, the entire packet is logged to the local SD card in a comma-delimitted format by calling logTelemPacket()
- * Afterwards, the firmware sends the TELEMETRY packet to the radio datagram manager to be broadcasted to the ground station listening for data
- * This process then repeats until the unit is powered off
- * NOTE: A bug in the previous launch firmware (v0.1) stopped program execution if the SD card is ejected
- *       In this version, the instrumentation package will still transmit even without an SD card
+ * In loop(), each component is polled for its relevant data
+ * It starts with the GPS, parsing a timestamp from the NMEA string and, if the PPS flag has been flipped, parsing proper GPS data from the NMEA string
+ * Then it moves to the altimeter where barometric pressure (in Pa), altitude (m AGL), and component temperature (°C) are polled and put into the packet
+ * The firmware then polls the IMU where the sensor calibration statuses are checked first. Actual data is only polled if all sensor calibrations are 3
+ * Finally, the humidity sensor is polled and ambient humidity (in %) and ambient temperature (°C) are added to the telemetry packet
  * 
- * Last Revision: 11/20/2019 By Braidan Duffy
+ * Last Revision: 12/17/2019 By Braidan Duffy
  */
 
 #include <RH_RF95.h>
@@ -105,7 +106,7 @@ const bool PACKET_DEBUG = true;
 void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.begin(115200);
-    if (FLIGHT_SAFE) while(!Serial); //Wait for serial terminal to open
+    if (!FLIGHT_SAFE) while(!Serial); //If code is not flight safe (i.e. in testing), wait for serial terminal to open
 
     //--------------------------
     //---RADIO INITIALIZATION---
@@ -134,6 +135,10 @@ void setup() {
     //------------------------
 
     gps.begin(9600);
+    if (!gps) {
+        Serial.print("GPS Initialization failed... Check module and wiring...");
+        while(1); // Blocks code
+    }
 
 	pinMode(LED_BUILTIN, OUTPUT);
 	digitalWrite(LED_BUILTIN, ledState);
@@ -170,13 +175,14 @@ void setup() {
     }
     baro.setOversampleRate(7);
     baro.setModeActive();
-    baro.enableEventFlags();
+    Serial.print("Calibrating starting height...");
+    while(!baro.calibrateStartingHeight()); //Wait until starting height is properly calibrateds
+    Serial.println("...done");
 
     //------------------------
     //---IMU INITIALIZATION---
     //------------------------
 
-    //Initialize sensor
     if (!bno.begin()) {
         Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
         while(1); //Block code
@@ -249,7 +255,7 @@ void loop() {
     baro.setModeBarometer(); //Measure pressure
     data.baro_pressure = baro.readPressure();
     baro.setModeAltimeter(); //Measure altitude
-    data.baro_altitude = baro.readAltitude();
+    data.baro_altitude = baro.readAltitudeAGL();
     data.baro_temperature = baro.readTemp();
 
     if (BARO_DEBUG) {

@@ -10,7 +10,7 @@ struct TELEMETRY {
     long gps_speed;             //In thousandths of a knot (divide by 1000. when displaying)
     long gps_course;            //In thousandths of a degree (divide by 1000. when displaying)
     float baro_pressure;        //Pascals
-    float baro_altitude;        //Meters
+    float baro_altitude;        //Meters above ground level
     float baro_temperature;     //Celsius
     uint8_t system_cal = 0;     //IMU system calibration, 0-3 with 3 being fully calibrated
     uint8_t gyro_cal = 0;       //IMU gyroscope calibration, 0-3 with 3 being fully calibrated

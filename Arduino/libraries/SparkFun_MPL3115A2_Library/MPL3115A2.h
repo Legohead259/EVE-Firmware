@@ -76,6 +76,7 @@ public:
   bool begin(); // Gets sensor on the I2C bus.
   float readAltitude(); // Returns float with meters above sealevel. Ex: 1638.94
   float readAltitudeFt(); // Returns float with feet above sealevel. Ex: 5376.68
+  float readAltitudeAGL(); // Returns float with meters above ground level (AGL). Ex. 500.95 
   float readPressure(); // Returns float with barometric pressure in Pa. Ex: 83351.25
   float readTemp(); // Returns float with current temperature in Celsius. Ex: 23.37
   float readTempF(); // Returns float with current temperature in Fahrenheit. Ex: 73.96
@@ -85,6 +86,7 @@ public:
   void setModeActive(); // Start taking measurements!
   void setOversampleRate(byte); // Sets the # of samples from 1 to 128. See datasheet.
   void enableEventFlags(); // Sets the fundamental event flags. Required during setup.
+  bool calibrateStartingHeight();
 
   //Public Variables
 
@@ -96,5 +98,6 @@ private:
   void IIC_Write(byte regAddr, byte value);
 
   //Private Variables
-
+  float startingHeight = 0;
+  bool startHeightCal = false;
 };

@@ -44,6 +44,8 @@
 #include <SD.h>
 #include <MicroNMEA.h>
 #include <telemetry.h>
+#include <Wire.h>
+#include <MPL3115A2.h>
 
 #define RFM95_CS A5
 #define RFM95_RST A4
@@ -56,6 +58,8 @@
 
 #define BNO055_SAMPLERATE_DELAY_MS (100)
 
+#define FLIGHT_SAFE false
+
 TELEMETRY data;
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 RHDatagram manager(rf95, MY_ADDRESS);
@@ -65,11 +69,14 @@ char nmeaBuffer[100];
 MicroNMEA nmea(nmeaBuffer, sizeof(nmeaBuffer));
 bool ledState = LOW;
 volatile bool ppsTriggered = false;
+uint8_t lastSecond = 0;
+float lastMillis = millis();
+float curMillis = 0;
+float curMSecond = 0;
 
 Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x28);
 
-I2C i2c;
-Barometer baro(i2c);
+MPL3115A2 baro;
 
 //DEBUG Flags
 const bool GPS_ECHO = false;
@@ -80,8 +87,7 @@ const bool PACKET_DEBUG = true;
 void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.begin(115200);
-    while(!Serial); //Wait for serial terminal to open
-                    //REMOVE BEFORE FLIGHT
+    if (FLIGHT_SAFE) while(!Serial); //Wait for serial terminal to open
 
     //--------------------------
     //---RADIO INITIALIZATION---
@@ -152,8 +158,17 @@ void setup() {
     //---ALTIMETER INITIALIZATION---
     //------------------------------
 
+    if (!baro.begin()) {
+        Serial.println("Couldnt find sensor");
+        while(1); // Block code
+    }
+    // baro.setSeaPressure(baro.getPressure()); //Zeros pressure gauge to local atmospheric pressure
     // baro.calibrateStartingHeight();
-    // Serial.println("Height Calibrated!"); //DEBUG
+    // baro.setModeAltimeter(); //Measure altitude
+    baro.setModeBarometer(); //Meaure pressure
+    baro.setOversampleRate(7);
+    baro.setModeActive();
+    baro.enableEventFlags();
 }
 
 void loop() {
@@ -161,25 +176,41 @@ void loop() {
     //---GPS polling---
     //-----------------
 
+    //Parse milliseconds for timestamp
+    uint8_t curSecond = nmea.getSecond();
+    // Serial.println(curSecond);
+    if (curSecond == lastSecond) {
+        curMillis = millis();
+        curMSecond = curMillis - lastMillis;
+        // Serial.println((int) curMSecond); //DEBUG
+    }
+    else {
+        lastSecond = curSecond;
+        lastMillis = millis();
+        curMSecond = 0;
+    }
+
+    //Parse timestamp
+    sprintf(data.timestamp, "%02d:%02d:%02d:%03d", nmea.getHour(), nmea.getMinute(), nmea.getSecond(), (int) curMSecond);
+
+    //Update NMEA string based on PPS pulse from GPS. By default refresh rate is 1Hz
     if (ppsTriggered) {
         ppsTriggered = false;
         ledState = !ledState;
         digitalWrite(LED_BUILTIN, ledState);
-
-        //TODO: Parse timestamp
 
         data.GPSFix = nmea.isValid();
         data.numSats = nmea.getNumSatellites();
         data.HDOP = nmea.getHDOP();
         data.latitude = nmea.getLatitude();
         data.longitude = nmea.getLongitude();
-        nmea.getAltitude(data.gps_altitude);
+        nmea.getAltitude(data.altitude);
         data.gps_speed = nmea.getSpeed();
         data.gps_course = nmea.getCourse();
 
         if (GPS_DEBUG) printGPSData(); //DEBUG
 
-        nmea.clear();
+        // nmea.clear();
     }
 
     while (!ppsTriggered && gps.available()) {
@@ -192,8 +223,10 @@ void loop() {
     //---Altimeter polling---
     //-----------------------
 
-    // data.baro_altitudse = baro.getAltitude();
-    // Serial.print("Altitude: "); Serial.print(data.altitude); Serial.println(" m"); //DEBUG
+    data.pressure = baro.readPressure();
+    // data.baro_altitude = baro.readAltitude();
+    // Serial.print("Pressure: "); Serial.print(data.pressure); Serial.println(" Pa"); //DEBUG
+    // Serial.print("Altitude: "); Serial.print(data.baro_altitude); Serial.println(" m"); //DEBUG
 
     //-----------------
     //---IMU POLLING---
@@ -305,8 +338,8 @@ void printGPSData() {
     Serial.println(data.longitude / 1000000., 6); //DEBUG
 
     Serial.print("Altitude (m): ");  //DEBUG
-    if (nmea.getAltitude(data.gps_altitude))
-        Serial.println(data.gps_altitude / 1000., 3); //DEBUG
+    if (nmea.getAltitude(data.altitude))
+        Serial.println(data.altitude / 1000., 3); //DEBUG
     else
         Serial.println("not available"); //DEBUG
 
@@ -359,10 +392,10 @@ void printDataPacket() {
     Serial.print(data.HDOP); Serial.print(", ");
     Serial.print(data.latitude); Serial.print(", ");
     Serial.print(data.longitude); Serial.print(", ");
-    Serial.print(data.gps_altitude); Serial.print(", ");
+    Serial.print(data.altitude); Serial.print(", ");
     Serial.print(data.gps_speed); Serial.print(", ");
     Serial.print(data.gps_course); Serial.print(", ");
-    Serial.print(data.baro_altitude); Serial.print(", ");
+    Serial.print(data.pressure); Serial.print(", ");
     Serial.print(data.system_cal); Serial.print(", ");
     Serial.print(data.gyro_cal); Serial.print(", ");
     Serial.print(data.accel_cal); Serial.print(", ");
